@@ -1,19 +1,18 @@
 import 'package:flutter/cupertino.dart';
 import '../data/workspace.dart';
 import 'app_widgets.dart';
+import '../theme/app_theme.dart';
 
 Future<void> message(BuildContext context, String title, String body) =>
-    showCupertinoDialog<void>(
+    showCupertinoModalPopup<void>(
       context: context,
-      builder: (c) => CupertinoAlertDialog(
+      builder: (c) => CupertinoActionSheet(
         title: Text(title),
-        content: Text(body),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(c),
-            child: const Text('好'),
-          ),
-        ],
+        message: Text(body),
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(c),
+          child: const Text('好'),
+        ),
       ),
     );
 Future<bool> confirm(BuildContext context, String title, String body) async =>
@@ -128,60 +127,97 @@ class Screen extends StatelessWidget {
   final List<Widget> actions;
   final int sidebarCount;
   @override
-  Widget build(BuildContext context) => SafeArea(
-    bottom: false,
-    child: ListView(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
-      children: [
-        Row(
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    final background = AppColors.background.resolveFrom(context);
+    final back = Navigator.of(context).canPop();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = sidebarCount > 0 && constraints.maxWidth >= 760;
+        final content = wide
+            ? <Widget>[
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 280,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: children.take(sidebarCount).toList(),
+                      ),
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: children.skip(sidebarCount).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ]
+            : children;
+        return Stack(
           children: [
-            Expanded(
-              child: Text(
-                title,
-                style: CupertinoTheme.of(
-                  context,
-                ).textTheme.navLargeTitleTextStyle,
+            ListView.builder(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                top + 86,
+                20,
+                120 + MediaQuery.paddingOf(context).bottom,
+              ),
+              itemCount: content.length,
+              itemBuilder: (context, index) => content[index],
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: EdgeInsets.fromLTRB(17, top + 10, 17, 24),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      background,
+                      background.withValues(alpha: .96),
+                      background.withValues(alpha: 0),
+                    ],
+                    stops: const [0, .5, 1],
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    if (back) ...[
+                      GlassIconButton(
+                        icon: CupertinoIcons.chevron_left,
+                        label: '返回',
+                        onPressed: () => Navigator.maybePop(context),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: CupertinoTheme.of(context)
+                            .textTheme
+                            .navLargeTitleTextStyle
+                            .copyWith(fontSize: back ? 23 : 30),
+                      ),
+                    ),
+                    ...actions,
+                  ],
+                ),
               ),
             ),
-            ...actions,
           ],
-        ),
-        const SizedBox(height: 18),
-        if (sidebarCount > 0)
-          LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth < 720) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: children,
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 280,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: children.take(sidebarCount).toList(),
-                    ),
-                  ),
-                  const SizedBox(width: 24),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: children.skip(sidebarCount).toList(),
-                    ),
-                  ),
-                ],
-              );
-            },
-          )
-        else
-          ...children,
-      ],
-    ),
-  );
+        );
+      },
+    );
+  }
 }
 
 class SettingRow extends StatelessWidget {

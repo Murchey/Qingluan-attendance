@@ -9,6 +9,7 @@ class GlassScope extends InheritedWidget {
   bool updateShouldNotify(GlassScope oldWidget) => enabled != oldWidget.enabled;
 }
 
+/// Only floating controls sample the backdrop; scrolling cards are opaque.
 class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
@@ -25,118 +26,93 @@ class GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
     final blur =
+        navigation &&
         (context.dependOnInheritedWidgetOfExactType<GlassScope>()?.enabled ??
             true) &&
-        !MediaQuery.of(context).disableAnimations &&
-        !MediaQuery.of(context).accessibleNavigation;
-    final radius = BorderRadius.circular(navigation ? 34 : 24);
-    final tint =
-        color ??
-        CupertinoColors.secondarySystemGroupedBackground.resolveFrom(context);
+        !MediaQuery.disableAnimationsOf(context) &&
+        !MediaQuery.accessibleNavigationOf(context);
+    final radius = BorderRadius.circular(navigation ? 34 : 18);
+    final tint = color ?? AppColors.surface.resolveFrom(context);
     final content = Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: tint.withValues(alpha: blur ? (navigation ? .52 : .68) : .96),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            CupertinoColors.white.withValues(alpha: dark ? .065 : .38),
-            CupertinoColors.white.withValues(alpha: dark ? .015 : .08),
-            CupertinoColors.systemGrey.withValues(alpha: dark ? .035 : .06),
-          ],
-          stops: const [0, .45, 1],
-        ),
+        color: tint.withValues(alpha: blur ? .88 : 1),
         borderRadius: radius,
+        border: Border.all(
+          color: CupertinoColors.separator
+              .resolveFrom(context)
+              .withValues(alpha: dark ? .18 : .10),
+          width: .5,
+        ),
       ),
       child: child,
     );
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: radius,
-        boxShadow: [
-          BoxShadow(
-            color: CupertinoColors.black.withValues(
-              alpha: dark
-                  ? .24
-                  : navigation
-                  ? .13
-                  : .045,
-            ),
-            blurRadius: navigation ? 32 : 20,
-            offset: Offset(0, navigation ? 10 : 5),
-          ),
-          if (navigation)
-            BoxShadow(
-              color: CupertinoColors.white.withValues(alpha: dark ? .035 : .6),
-              blurRadius: 1,
-              offset: const Offset(0, -1),
-            ),
-        ],
+        boxShadow: navigation
+            ? [
+                BoxShadow(
+                  color: CupertinoColors.black.withValues(
+                    alpha: dark ? .20 : .08,
+                  ),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : const [],
       ),
       child: ClipRRect(
         borderRadius: radius,
-        child: CustomPaint(
-          foregroundPainter: _GlassEdge(
-            dark: dark,
-            radius: navigation ? 34 : 24,
-          ),
-          child: blur
-              ? BackdropFilter(
-                  filter: ImageFilter.blur(
-                    sigmaX: navigation ? 32 : 20,
-                    sigmaY: navigation ? 32 : 20,
-                  ),
-                  child: content,
-                )
-              : content,
-        ),
+        child: blur
+            ? BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: content,
+              )
+            : content,
       ),
     );
   }
 }
 
-/// Specular rim stays outside the padded content and does not intercept taps.
-class _GlassEdge extends CustomPainter {
-  const _GlassEdge({required this.dark, required this.radius});
-  final bool dark;
-  final double radius;
+class GlassIconButton extends StatelessWidget {
+  const GlassIconButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
   @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1
-      ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          CupertinoColors.white.withValues(alpha: dark ? .28 : .95),
-          CupertinoColors.white.withValues(alpha: dark ? .035 : .2),
-          CupertinoColors.systemGrey.withValues(alpha: dark ? .16 : .24),
-          CupertinoColors.white.withValues(alpha: dark ? .12 : .65),
-        ],
-        stops: const [0, .4, .75, 1],
-      ).createShader(rect);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect.deflate(.5), Radius.circular(radius - .5)),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_GlassEdge oldDelegate) =>
-      dark != oldDelegate.dark || radius != oldDelegate.radius;
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 3),
+    child: Semantics(
+      button: true,
+      label: label,
+      child: SizedBox(
+        width: 42,
+        height: 42,
+        child: GlassCard(
+          navigation: true,
+          padding: EdgeInsets.zero,
+          child: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: onPressed,
+            child: Icon(icon, size: 20),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
-/// Apple grouped pages use neutral system surfaces in both appearances.
 class GlassBackdrop extends StatelessWidget {
   const GlassBackdrop({super.key});
   @override
   Widget build(BuildContext context) => IgnorePointer(
-    child: ColoredBox(
-      color: CupertinoColors.systemGroupedBackground.resolveFrom(context),
-    ),
+    child: ColoredBox(color: AppColors.background.resolveFrom(context)),
   );
 }
 

@@ -108,7 +108,6 @@ class _ConflictPageState extends State<ConflictPage> {
 
   @override
   Widget build(BuildContext context) => CupertinoPageScaffold(
-    navigationBar: const CupertinoNavigationBar(middle: Text('字段差异审查')),
     child: Screen(
       title: widget.day,
       sidebarCount: 2,

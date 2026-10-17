@@ -2,7 +2,14 @@ import 'package:flutter/cupertino.dart';
 
 abstract final class AppColors {
   static const navy = Color(0xFF172A46);
-  static const background = CupertinoColors.systemGroupedBackground;
+  static const background = CupertinoDynamicColor.withBrightness(
+    color: Color(0xFFF5F5F7),
+    darkColor: Color(0xFF1A1A1A),
+  );
+  static const surface = CupertinoDynamicColor.withBrightness(
+    color: Color(0xFFFFFFFF),
+    darkColor: Color(0xFF252525),
+  );
   static const success = Color(0xFF2F8F68);
   static const warning = Color(0xFFB7791F);
   static const danger = Color(0xFFC94A4A);
@@ -21,7 +28,7 @@ abstract final class AppTheme {
       color: CupertinoColors.white,
       darkColor: AppColors.navy,
     ),
-    scaffoldBackgroundColor: CupertinoColors.systemGroupedBackground,
+    scaffoldBackgroundColor: AppColors.background,
   );
   static CupertinoThemeData get light =>
       system.copyWith(brightness: Brightness.light);

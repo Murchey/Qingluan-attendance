@@ -163,7 +163,6 @@ class _RecordsPageState extends State<RecordsPage> {
     ),
   );
   Widget _detailBody(BuildContext c, Entry e) => CupertinoPageScaffold(
-    navigationBar: const CupertinoNavigationBar(middle: Text('考勤详情')),
     child: Screen(
       title: widget.store.name(e.personId),
       children: [
@@ -204,17 +203,18 @@ class _RecordsPageState extends State<RecordsPage> {
   @override
   Widget build(BuildContext context) {
     final rows = filtered;
-    final groups = rows.map((e) => e.day).toSet();
+    final groups = <String, List<Entry>>{};
+    for (final row in rows) {
+      groups.putIfAbsent(row.day, () => []).add(row);
+    }
     return Screen(
       title: '历史记录',
       sidebarCount: 3,
       actions: [
-        CupertinoButton(
+        GlassIconButton(
+          icon: CupertinoIcons.square_arrow_up,
+          label: '导出 Excel',
           onPressed: export,
-          child: const Icon(
-            CupertinoIcons.square_arrow_up,
-            semanticLabel: '导出 Excel',
-          ),
         ),
       ],
       children: [
@@ -284,22 +284,18 @@ class _RecordsPageState extends State<RecordsPage> {
             title: '暂无记录',
             message: '登记考勤后可在这里搜索、筛选和导出。',
           ),
-        for (final day in groups) ...[
+        for (final day in groups.keys) ...[
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: SectionTitle(
-              '$day · ${rows.where((e) => e.day == day).length} 人',
+            child: SectionTitle('$day · ${groups[day]!.length} 人'),
+          ),
+          ...groups[day]!.map(
+            (e) => EntryTile(
+              store: widget.store,
+              entry: e,
+              onTap: () => detail(e),
             ),
           ),
-          ...rows
-              .where((e) => e.day == day)
-              .map(
-                (e) => EntryTile(
-                  store: widget.store,
-                  entry: e,
-                  onTap: () => detail(e),
-                ),
-              ),
         ],
       ],
     );

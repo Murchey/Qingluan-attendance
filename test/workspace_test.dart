@@ -127,6 +127,10 @@ void main() {
           '2026-10-17',
           {'in': '09:00', 'out': '18:00', 'status': '正常', 'note': ''},
         );
+        final personId = first.people.single.id;
+        await first.deletePerson(first.people.single);
+        first.settings['theme'] = 'dark';
+        await first.persist();
         final id = first.deviceId;
         await first.close();
         final second = Workspace.memory();
@@ -134,6 +138,12 @@ void main() {
         expect(second.identity, '管理员');
         expect(second.deviceId, id);
         expect(second.liveEntries.length, 1);
+        expect(second.visiblePeople, isEmpty);
+        expect(second.activePeople, isEmpty);
+        expect(second.name(personId), '林晓');
+        expect(second.settings['theme'], 'dark');
+        await second.savePerson('林晓');
+        expect(second.activePeople.single.id, isNot(personId));
         expect(second.pendingDays, contains('2026-10-17'));
         await second.close();
       } finally {

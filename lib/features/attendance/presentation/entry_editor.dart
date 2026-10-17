@@ -122,9 +122,6 @@ class _EntryEditorState extends State<EntryEditor> {
 
   @override
   Widget build(BuildContext context) => CupertinoPageScaffold(
-    navigationBar: CupertinoNavigationBar(
-      middle: Text(widget.entry == null ? '新增 / 批量登记' : '编辑登记'),
-    ),
     child: Screen(
       title: widget.day,
       children: [

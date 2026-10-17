@@ -29,11 +29,11 @@ void main() {
       await tester.pumpWidget(QingLuanApp(store: store));
       expect(
         tester
-            .widget<Text>(find.byKey(const ValueKey('local-record-count')))
+            .widget<Text>(find.byKey(const ValueKey('today-record-count')))
             .data,
         '1',
       );
-      expect(find.text('1 条'), findsOneWidget);
+      expect(find.text('还有 1 人待登记'), findsOneWidget);
       await tester.tap(find.text('今日登记'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('甲 · 已有记录'));
@@ -70,7 +70,7 @@ void main() {
         tester.widget<EntryEditor>(find.byType(EntryEditor)).day,
         yesterday.toIso8601String().substring(0, 10),
       );
-      await tester.pageBack();
+      await tester.tap(find.bySemanticsLabel('返回'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('今日登记'));
       await tester.pumpAndSettle();
@@ -119,8 +119,8 @@ void main() {
     });
     final store = Workspace.memory();
     await tester.pumpWidget(QingLuanApp(store: store));
-    expect(find.text('本地考勤记录'), findsOneWidget);
-    expect(find.text('快捷记录'), findsOneWidget);
+    expect(find.text('今日已登记'), findsOneWidget);
+    expect(find.text('今日登记'), findsOneWidget);
     expect(find.byType(CupertinoDatePicker), findsNothing);
     await tester.tap(find.text('记录'));
     await tester.pumpAndSettle();
@@ -147,6 +147,108 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('人员名单'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'appearance changes immediately on secondary pages and follows system',
+    (tester) async {
+      final store = Workspace.memory();
+      await tester.pumpWidget(QingLuanApp(store: store));
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(find.text('存储桶直链'), findsNothing);
+      await tester.tap(find.text('外观'));
+      await tester.pumpAndSettle();
+      Future<void> selectTheme(String label) async {
+        await tester.tap(find.text('主题'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.widgetWithText(CupertinoActionSheetAction, label),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await selectTheme('深色');
+      expect(store.settings['theme'], 'dark');
+      final context = tester.element(find.text('主题'));
+      expect(CupertinoTheme.brightnessOf(context), Brightness.dark);
+      await selectTheme('浅色');
+      expect(
+        CupertinoTheme.brightnessOf(tester.element(find.text('主题'))),
+        Brightness.light,
+      );
+      await selectTheme('跟随系统');
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      await tester.pumpAndSettle();
+      expect(
+        CupertinoTheme.brightnessOf(tester.element(find.text('主题'))),
+        Brightness.dark,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'person deletion can be cancelled and retains historical attendance',
+    (tester) async {
+      final store = Workspace.memory();
+      await store.setIdentity('主管');
+      await store.savePerson('甲');
+      final id = store.people.single.id;
+      await store.saveEntries(
+        [id],
+        businessDay(),
+        {'in': '09:00', 'out': '', 'status': '正常', 'note': ''},
+      );
+      await tester.pumpWidget(QingLuanApp(store: store));
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('人员名单'));
+      await tester.pumpAndSettle();
+      Future<void> delete() async {
+        await tester.tap(find.bySemanticsLabel('甲的选项'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('删除人员'));
+        await tester.pumpAndSettle();
+      }
+
+      await delete();
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(store.visiblePeople, hasLength(1));
+      await delete();
+      await tester.tap(find.text('确认'));
+      await tester.pumpAndSettle();
+      expect(store.visiblePeople, isEmpty);
+      expect(store.activePeople, isEmpty);
+      expect(find.text('甲'), findsNothing);
+      expect(store.name(id), '甲');
+      expect(store.record(id, businessDay()), isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('navigation follows a partial drag before finger release', (
+    tester,
+  ) async {
+    await tester.pumpWidget(QingLuanApp(store: Workspace.memory()));
+    await tester.pumpAndSettle();
+    final pageView = tester.widget<PageView>(find.byType(PageView));
+    final nav = find.byKey(const ValueKey('bottom-navigation'));
+    final segment = tester.getSize(nav).width / 4;
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('今日')),
+    );
+    await gesture.moveBy(const Offset(25, 0));
+    await tester.pump();
+    final start = pageView.controller!.page!;
+    await gesture.moveBy(Offset(segment * .35, 0));
+    await tester.pump();
+    expect(pageView.controller!.page, closeTo(start + .35, .02));
+    await gesture.up();
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 

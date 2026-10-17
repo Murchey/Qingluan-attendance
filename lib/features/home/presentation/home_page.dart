@@ -4,7 +4,6 @@ class HomePage extends StatelessWidget {
   const HomePage({super.key});
   @override
   Widget build(BuildContext context) => CupertinoPageScaffold(
-    navigationBar: const CupertinoNavigationBar(middle: Text('青鸾考勤')),
     child: SafeArea(
       child: Center(
         child: Column(

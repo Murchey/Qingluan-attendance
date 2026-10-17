@@ -10,9 +10,11 @@ import 'package:share_plus/share_plus.dart';
 import 'workspace.dart';
 
 class ImportPreview {
-  ImportPreview(this.names, this.issues);
+  ImportPreview(this.names, this.issues, {this.gender = const {}, this.employeeIds = const {}});
   final List<String> names;
   final List<String> issues;
+  final Map<String, String> gender;
+  final Map<String, String> employeeIds;
 }
 
 ImportPreview parsePeople(List<List<dynamic>> rows, Iterable<String> existing) {
@@ -20,18 +22,25 @@ ImportPreview parsePeople(List<List<dynamic>> rows, Iterable<String> existing) {
   final header = rows.first
       .map((c) => c?.toString().replaceAll('\uFEFF', '').trim() ?? '')
       .toList();
+  final hasHeader = header.any((s) => ['姓名', '人员', 'name'].contains(s.toLowerCase()));
   final column = header.indexWhere(
     (s) => ['姓名', '人员', 'name'].contains(s.toLowerCase()),
   );
-  if (column < 0) {
-    throw const FormatException('首行需要包含“姓名”列；支持 .xlsx 和 UTF-8 CSV');
+  final start = hasHeader ? 1 : 0;
+  if (!hasHeader && rows.length == 1) {
+    throw const FormatException('文件没有可导入的人员行');
   }
+  final nameColumn = hasHeader && column >= 0 ? column : 0;
+  final genderColumn = hasHeader ? header.indexWhere((s) => ['性别', 'gender'].contains(s.toLowerCase())) : 1;
+  final idColumn = hasHeader ? header.indexWhere((s) => ['工号', '员工号', 'employeeid'].contains(s.toLowerCase())) : 2;
   final seen = existing.toSet();
   final names = <String>[];
   final issues = <String>[];
-  for (var i = 1; i < rows.length; i++) {
-    final name = rows[i].length > column
-        ? rows[i][column]?.toString().trim() ?? ''
+  final genders = <String, String>{};
+  final employeeIds = <String, String>{};
+  for (var i = start; i < rows.length; i++) {
+    final name = rows[i].length > nameColumn
+        ? rows[i][nameColumn]?.toString().trim() ?? ''
         : '';
     if (name.isEmpty) {
       issues.add('第 ${i + 1} 行缺少姓名');
@@ -42,8 +51,10 @@ ImportPreview parsePeople(List<List<dynamic>> rows, Iterable<String> existing) {
       continue;
     }
     names.add(name);
+    genders[name] = genderColumn >= 0 && rows[i].length > genderColumn ? rows[i][genderColumn].toString().trim() : '';
+    employeeIds[name] = idColumn >= 0 && rows[i].length > idColumn ? rows[i][idColumn].toString().trim() : '';
   }
-  return ImportPreview(names, issues);
+  return ImportPreview(names, issues, gender: genders, employeeIds: employeeIds);
 }
 
 Future<ImportPreview?> pickPeople(Workspace store) async {
@@ -70,7 +81,7 @@ Future<ImportPreview?> pickPeople(Workspace store) async {
         .map((r) => r.map((c) => c?.value?.toString() ?? '').toList())
         .toList();
   }
-  return parsePeople(rows, store.people.map((p) => p.name));
+  return parsePeople(rows, store.visiblePeople.map((p) => p.name));
 }
 
 const exportColumns = [

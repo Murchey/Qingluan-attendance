@@ -59,6 +59,8 @@ void main() {
       await tester.pumpWidget(QingLuanApp(store: store));
       await tester.tap(find.text('设置'));
       await tester.pumpAndSettle();
+      await tester.tap(find.text('对象存储'));
+      await tester.pumpAndSettle();
       expect(find.text('存储桶直链'), findsOneWidget);
       expect(find.text('Endpoint'), findsNothing);
       expect(find.text('Bucket'), findsNothing);

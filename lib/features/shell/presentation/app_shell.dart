@@ -114,49 +114,57 @@ class _AppShellState extends State<AppShell> {
     builder: (context, constraints) {
       final width = constraints.maxWidth / 4;
       final dark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+      void drag(DragUpdateDetails details) {
+        if (!controller.hasClients) return;
+        final page =
+            ((controller.page ?? index.toDouble()) + details.delta.dx / width)
+                .clamp(0.0, 3.0);
+        controller.jumpTo(page * controller.position.viewportDimension);
+      }
+
+      void settle() {
+        if (controller.hasClients) {
+          select((controller.page ?? index.toDouble()).round());
+        }
+      }
+
       return GestureDetector(
+        key: const ValueKey('bottom-navigation'),
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (details) {
-          final next = (details.localPosition.dx / width).floor().clamp(0, 3);
-          if (next != index) select(next);
+        onHorizontalDragStart: (_) {
+          if (controller.hasClients) {
+            controller.jumpTo(controller.offset);
+          }
         },
-        child: Stack(
-          children: [
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 180),
-              left: index * width,
-              top: 0,
-              bottom: 0,
-              width: width,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: dark
-                        ? const [Color(0x369BBDEB), Color(0x126F95CD)]
-                        : const [Color(0x26819DBF), Color(0x12617EA5)],
+        onHorizontalDragUpdate: drag,
+        onHorizontalDragEnd: (_) => settle(),
+        onHorizontalDragCancel: settle,
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) => Stack(
+            children: [
+              Positioned(
+                left:
+                    (controller.hasClients
+                            ? controller.page ?? index.toDouble()
+                            : index.toDouble())
+                        .clamp(0.0, 3.0) *
+                    width,
+                top: 0,
+                bottom: 0,
+                width: width,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: CupertinoTheme.of(
+                      context,
+                    ).primaryColor.withValues(alpha: dark ? .15 : .08),
+                    borderRadius: BorderRadius.circular(26),
                   ),
-                  borderRadius: BorderRadius.circular(26),
-                  border: Border.all(
-                    color: CupertinoColors.white.withValues(
-                      alpha: dark ? .18 : .75,
-                    ),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(
-                        0xFF29486F,
-                      ).withValues(alpha: dark ? .14 : .06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
                 ),
               ),
-            ),
-            Row(children: List.generate(4, (i) => _navItem(context, i))),
-          ],
+              Row(children: List.generate(4, (i) => _navItem(context, i))),
+            ],
+          ),
         ),
       );
     },

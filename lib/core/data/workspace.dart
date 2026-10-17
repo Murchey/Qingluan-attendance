@@ -14,13 +14,29 @@ String businessDay([DateTime? instant]) => (instant ?? DateTime.now())
 const statuses = ['正常', '迟到', '早退', '请假', '缺勤'];
 
 class Person {
-  Person(this.id, this.name, {this.active = true});
+  Person(this.id, this.name, {this.gender = '', this.employeeId = '', this.active = true, this.deleted = false});
   final String id;
   String name;
+  String gender;
+  String employeeId;
   bool active;
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'active': active};
-  factory Person.fromJson(Map<String, dynamic> j) =>
-      Person(j['id'], j['name'], active: j['active']);
+  bool deleted;
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'gender': gender,
+    'employeeId': employeeId,
+    'active': active,
+    'deleted': deleted,
+  };
+  factory Person.fromJson(Map<String, dynamic> j) => Person(
+    j['id'],
+    j['name'],
+    gender: j['gender'] ?? '',
+    employeeId: j['employeeId'] ?? '',
+    active: j['active'],
+    deleted: j['deleted'] ?? false,
+  );
 }
 
 class Entry {
@@ -89,7 +105,9 @@ class Workspace extends ChangeNotifier {
   String syncMessage = '尚未配置对象存储，数据保存在本机';
   String name(String id) =>
       people.where((p) => p.id == id).firstOrNull?.name ?? '已移除人员';
-  List<Person> get activePeople => people.where((p) => p.active).toList();
+  List<Person> get visiblePeople => people.where((p) => !p.deleted).toList();
+  List<Person> get activePeople =>
+      people.where((p) => p.active && !p.deleted).toList();
   List<Entry> get liveEntries => entries.where((e) => !e.deleted).toList();
   Entry? record(String personId, String day) => liveEntries
       .where((e) => e.personId == personId && e.day == day)
@@ -148,7 +166,7 @@ class Workspace extends ChangeNotifier {
   Future<void> savePerson(String name, {Person? person}) async {
     name = name.trim();
     if (name.isEmpty) throw const FormatException('姓名不能为空');
-    if (people.any((p) => p.id != person?.id && p.name == name)) {
+    if (visiblePeople.any((p) => p.id != person?.id && p.name == name)) {
       throw const FormatException('已有同名人员，请使用可区分的姓名');
     }
     if (person == null) {
@@ -160,8 +178,25 @@ class Workspace extends ChangeNotifier {
     await persist();
   }
 
+  Future<void> updatePeople(List<Person> selected, {String? gender, String? employeeId}) async {
+    for (final person in selected) {
+      if (gender != null) person.gender = gender;
+      if (employeeId != null) person.employeeId = employeeId;
+    }
+    pendingDays.add('人员名单');
+    await persist();
+  }
+
   Future<void> togglePerson(Person person) async {
     person.active = !person.active;
+    pendingDays.add('人员名单');
+    await persist();
+  }
+
+  /// Keep the person as a tombstone so historical attendance retains its name.
+  Future<void> deletePerson(Person person) async {
+    person.deleted = true;
+    person.active = false;
     pendingDays.add('人员名单');
     await persist();
   }

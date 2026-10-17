@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import '../data/workspace.dart';
 import 'app_widgets.dart';
 import '../theme/app_theme.dart';
@@ -43,14 +44,22 @@ Future<T?> choose<T>(
   context: context,
   builder: (c) => CupertinoActionSheet(
     title: Text(title),
-    actions: options.entries
-        .map(
-          (e) => CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(c, e.key),
-            child: Text(e.value),
-          ),
-        )
-        .toList(),
+    actions: [
+      SizedBox(
+        height: (options.length * 52.0).clamp(0, 360),
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: options.length,
+          itemBuilder: (_, i) {
+            final e = options.entries.elementAt(i);
+            return CupertinoActionSheetAction(
+              onPressed: () => Navigator.pop(c, e.key),
+              child: Text(e.value),
+            );
+          },
+        ),
+      ),
+    ],
     cancelButton: CupertinoActionSheetAction(
       onPressed: () => Navigator.pop(c),
       child: const Text('取消'),
@@ -62,39 +71,166 @@ Future<String?> input(
   String title, {
   String value = '',
   bool secret = false,
+  bool copyable = false,
 }) async {
   final controller = TextEditingController(text: value);
-  final result = await showCupertinoDialog<String>(
+  final result = await showCupertinoModalPopup<String>(
     context: context,
-    builder: (c) => CupertinoAlertDialog(
-      title: Text(title),
-      content: Padding(
-        padding: const EdgeInsets.only(top: 12),
-        child: CupertinoTextField(
-          controller: controller,
-          autofocus: true,
-          obscureText: secret,
-          enableSuggestions: !secret,
-          autocorrect: !secret,
-          placeholder: title,
-        ),
-      ),
-      actions: [
-        CupertinoDialogAction(
-          onPressed: () => Navigator.pop(c),
-          child: const Text('取消'),
-        ),
-        CupertinoDialogAction(
-          onPressed: () => Navigator.pop(c, controller.text.trim()),
-          child: const Text('保存'),
-        ),
-      ],
+    builder: (c) => _InputSheet(
+      title: title,
+      controller: controller,
+      secret: secret,
+      copyable: copyable,
     ),
   );
   // A dialog may still animate out after its future resolves.
   await Future<void>.delayed(const Duration(milliseconds: 300));
   controller.dispose();
   return result;
+}
+
+class _InputSheet extends StatefulWidget {
+  const _InputSheet({
+    required this.title,
+    required this.controller,
+    required this.secret,
+    required this.copyable,
+  });
+  final String title;
+  final TextEditingController controller;
+  final bool secret;
+  final bool copyable;
+  @override
+  State<_InputSheet> createState() => _InputSheetState();
+}
+
+class _InputSheetState extends State<_InputSheet> {
+  late bool obscured = widget.secret;
+  bool copied = false;
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final surface = AppColors.surface.resolveFrom(context);
+    return SafeArea(
+      top: false,
+      child: AnimatedPadding(
+        duration: const Duration(milliseconds: 180),
+        padding: EdgeInsets.only(bottom: bottom),
+        child: Container(
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x26000000),
+                blurRadius: 24,
+                offset: Offset(0, -6),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: CupertinoColors.separator.resolveFrom(context),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('取消'),
+                    ),
+                    CupertinoButton(
+                      padding: const EdgeInsets.only(left: 12),
+                      onPressed: () =>
+                          Navigator.pop(context, widget.controller.text.trim()),
+                      child: const Text('保存'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                CupertinoTextField(
+                  controller: widget.controller,
+                  autofocus: true,
+                  obscureText: obscured,
+                  enableSuggestions: !widget.secret,
+                  autocorrect: !widget.secret,
+                  placeholder: widget.title,
+                  suffix: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (widget.secret)
+                        CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          onPressed: () => setState(() => obscured = !obscured),
+                          child: Icon(
+                            obscured
+                                ? CupertinoIcons.eye
+                                : CupertinoIcons.eye_slash,
+                            size: 20,
+                          ),
+                        ),
+                      if (widget.copyable)
+                        CupertinoButton(
+                          padding: const EdgeInsets.only(right: 10, left: 4),
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: widget.controller.text),
+                            );
+                            if (mounted) setState(() => copied = true);
+                          },
+                          child: Icon(
+                            copied
+                                ? CupertinoIcons.checkmark
+                                : CupertinoIcons.doc_on_doc,
+                            size: 20,
+                          ),
+                        ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.fromLTRB(14, 14, 4, 14),
+                ),
+                if (widget.copyable)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, left: 4),
+                    child: Text(
+                      copied ? '已复制到剪贴板' : '可使用右侧按钮显示或复制内容',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: CupertinoColors.secondaryLabel.resolveFrom(
+                          context,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 Future<void> guarded(
@@ -157,63 +293,66 @@ class Screen extends StatelessWidget {
                 ),
               ]
             : children;
-        return Stack(
-          children: [
-            ListView.builder(
-              padding: EdgeInsets.fromLTRB(
-                20,
-                top + 86,
-                20,
-                120 + MediaQuery.paddingOf(context).bottom,
+        return ColoredBox(
+          color: background,
+          child: Stack(
+            children: [
+              ListView.builder(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  top + 86,
+                  20,
+                  120 + MediaQuery.paddingOf(context).bottom,
+                ),
+                itemCount: content.length,
+                itemBuilder: (context, index) => content[index],
               ),
-              itemCount: content.length,
-              itemBuilder: (context, index) => content[index],
-            ),
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Container(
-                padding: EdgeInsets.fromLTRB(17, top + 10, 17, 24),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      background,
-                      background.withValues(alpha: .96),
-                      background.withValues(alpha: 0),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  padding: EdgeInsets.fromLTRB(17, top + 10, 17, 24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        background,
+                        background.withValues(alpha: .96),
+                        background.withValues(alpha: 0),
+                      ],
+                      stops: const [0, .5, 1],
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      if (back) ...[
+                        GlassIconButton(
+                          icon: CupertinoIcons.chevron_left,
+                          label: '返回',
+                          onPressed: () => Navigator.maybePop(context),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: CupertinoTheme.of(context)
+                              .textTheme
+                              .navLargeTitleTextStyle
+                              .copyWith(fontSize: back ? 23 : 30),
+                        ),
+                      ),
+                      ...actions,
                     ],
-                    stops: const [0, .5, 1],
                   ),
                 ),
-                child: Row(
-                  children: [
-                    if (back) ...[
-                      GlassIconButton(
-                        icon: CupertinoIcons.chevron_left,
-                        label: '返回',
-                        onPressed: () => Navigator.maybePop(context),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                    Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: CupertinoTheme.of(context)
-                            .textTheme
-                            .navLargeTitleTextStyle
-                            .copyWith(fontSize: back ? 23 : 30),
-                      ),
-                    ),
-                    ...actions,
-                  ],
-                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

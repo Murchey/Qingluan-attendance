@@ -21,7 +21,7 @@ void main() {
       ],
       ['林晓'],
     );
-    expect(preview.names, ['周宁']);
+    expect(preview.names, ['林晓1', '周宁', '周宁1']);
     expect(preview.issues.length, 3);
     expect(
       () => parsePeople([

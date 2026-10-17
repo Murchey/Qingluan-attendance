@@ -75,7 +75,13 @@ class _SettingsPageState extends State<SettingsPage> {
     await guarded(context, () async {
       final old = await secure.read(key: key) ?? '';
       if (!mounted) return;
-      final value = await input(context, title, value: old, secret: true);
+      final value = await input(
+        context,
+        title,
+        value: old,
+        secret: true,
+        copyable: true,
+      );
       if (value != null) await secure.write(key: key, value: value);
     });
   }
@@ -146,6 +152,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             SettingRow('时间', onTap: () => openSection('时间')),
             SettingRow('自动更新', onTap: () => openSection('自动更新')),
+            SettingRow('数据导出', onTap: () => openSection('数据导出')),
           ]),
           _group('应用', [
             SettingRow(
@@ -293,6 +300,20 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
             SettingRow(
+              '首页卡片',
+              detail: homeCardLabel,
+              onTap: () async {
+                final value = await choose(context, '首页卡片', {
+                  'sync': '当前同步状态',
+                  'today': '今日登记人数',
+                });
+                if (value != null) {
+                  store.settings['homeCard'] = value;
+                  await store.persist();
+                }
+              },
+            ),
+            SettingRow(
               '轻毛玻璃',
               detail: '仅用于浮动控件；关闭可进一步减少绘制开销',
               trailing: CupertinoSwitch(
@@ -304,6 +325,25 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
             const GlassCard(child: Text('Aa  青鸾考勤 · 外观预览')),
+          ]),
+        if (widget.section == '数据导出')
+          _group('数据导出', [
+            const Text('可导出 SQLite、Excel 或 CSV。移动端会打开系统分享面板。'),
+            SettingRow(
+              '导出 SQLite 文件',
+              detail: '完整本地工作区',
+              onTap: () => exportData('db'),
+            ),
+            SettingRow(
+              '导出 Excel',
+              detail: '全部有效考勤记录',
+              onTap: () => exportData('xlsx'),
+            ),
+            SettingRow(
+              '导出 CSV',
+              detail: '全部有效考勤记录',
+              onTap: () => exportData('csv'),
+            ),
           ]),
         if (widget.section == '关于')
           _group('关于', [
@@ -326,6 +366,28 @@ class _SettingsPageState extends State<SettingsPage> {
     'dark' => '深色',
     _ => '跟随系统',
   };
+  String get homeCardLabel =>
+      store.settings['homeCard'] == 'today' ? '今日登记人数' : '当前同步状态';
+  Future<void> exportData(String kind) async {
+    final box = context.findRenderObject() as RenderBox?;
+    final origin = box == null
+        ? Rect.zero
+        : box.localToGlobal(Offset.zero) & box.size;
+    await guarded(context, () async {
+      final result = switch (kind) {
+        'db' => await saveDatabase(store, origin),
+        'csv' => await saveCsv(store, store.liveEntries, origin),
+        _ => await saveWorkbook(
+          store,
+          store.liveEntries,
+          exportColumns,
+          origin,
+        ),
+      };
+      if (result != null && mounted) await message(context, '导出已生成', result);
+    });
+  }
+
   void openSection(String section) => Navigator.of(context).push(
     CupertinoPageRoute<void>(
       builder: (_) => SettingsPage(store: store, section: section),
@@ -446,8 +508,22 @@ class PeoplePage extends StatelessWidget {
       ),
     );
     if (accepted == true) {
+      if (!context.mounted) return;
+      final hasDuplicates = preview.issues.any((s) => s.contains('重名'));
+      if (hasDuplicates) {
+        final choice = await choose(context, '发现重复人员', {
+          'copy': '作为副本保存（自动追加数字）',
+          'skip': '不保存重复项',
+        });
+        if (!context.mounted) return;
+        if (choice != 'copy') return;
+      }
       for (final name in preview.names) {
-        await store.savePerson(name);
+        await store.savePerson(
+          name,
+          gender: preview.gender[name] ?? '',
+          employeeId: preview.employeeIds[name] ?? '',
+        );
       }
     }
   });
@@ -468,9 +544,18 @@ class PeoplePage extends StatelessWidget {
                 onPressed: () => import(context),
                 child: const Text('导入 Excel / CSV'),
               ),
+              CupertinoButton(
+                onPressed: () => Navigator.of(context).push(
+                  CupertinoPageRoute<void>(
+                    builder: (_) => PeopleBatchPage(store: store),
+                  ),
+                ),
+                child: const Text('批量编辑'),
+              ),
             ],
           ),
           const Text('文件首行需包含“姓名”列。支持 .xlsx 和 UTF-8 CSV。'),
+          const Text('支持带表头或无表头模板：第一列姓名（可选）、第二列性别（可选）、第三列工号（可选）。重名行会在导入预览中提示。'),
           if (store.visiblePeople.isEmpty)
             const EmptyState(
               icon: CupertinoIcons.person_2,
@@ -502,6 +587,87 @@ class PeoplePage extends StatelessWidget {
           ),
         ],
       ),
+    ),
+  );
+}
+
+class PeopleBatchPage extends StatefulWidget {
+  const PeopleBatchPage({super.key, required this.store});
+  final Workspace store;
+  @override
+  State<PeopleBatchPage> createState() => _PeopleBatchPageState();
+}
+
+class _PeopleBatchPageState extends State<PeopleBatchPage> {
+  final selected = <String>{};
+  Future<void> edit() async {
+    if (selected.isEmpty) return;
+    final gender = await choose(context, '批量设置性别', {
+      '': '不修改',
+      '男': '男',
+      '女': '女',
+      '其他': '其他',
+    });
+    if (gender == null) return;
+    await widget.store.updatePeople(
+      widget.store.visiblePeople.where((p) => selected.contains(p.id)).toList(),
+      gender: gender.isEmpty ? null : gender,
+    );
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) => CupertinoPageScaffold(
+    child: Screen(
+      title: '批量编辑人员',
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: CupertinoButton(
+                onPressed: () => setState(
+                  () => selected.addAll(
+                    widget.store.visiblePeople.map((p) => p.id),
+                  ),
+                ),
+                child: const Text('全选'),
+              ),
+            ),
+            Expanded(
+              child: CupertinoButton(
+                onPressed: () => setState(selected.clear),
+                child: const Text('清除'),
+              ),
+            ),
+            Expanded(
+              child: CupertinoButton.filled(
+                onPressed: edit,
+                child: const Text('编辑'),
+              ),
+            ),
+          ],
+        ),
+        Text('已选 ${selected.length} 人'),
+        ...widget.store.visiblePeople.map(
+          (p) => SettingRow(
+            p.name,
+            detail: [
+              p.gender,
+              p.employeeId,
+            ].where((s) => s.isNotEmpty).join(' · '),
+            onTap: () => setState(
+              () => selected.contains(p.id)
+                  ? selected.remove(p.id)
+                  : selected.add(p.id),
+            ),
+            trailing: Icon(
+              selected.contains(p.id)
+                  ? CupertinoIcons.checkmark_circle_fill
+                  : CupertinoIcons.circle,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }

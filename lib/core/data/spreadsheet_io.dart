@@ -10,7 +10,12 @@ import 'package:share_plus/share_plus.dart';
 import 'workspace.dart';
 
 class ImportPreview {
-  ImportPreview(this.names, this.issues, {this.gender = const {}, this.employeeIds = const {}});
+  ImportPreview(
+    this.names,
+    this.issues, {
+    this.gender = const {},
+    this.employeeIds = const {},
+  });
   final List<String> names;
   final List<String> issues;
   final Map<String, String> gender;
@@ -22,7 +27,9 @@ ImportPreview parsePeople(List<List<dynamic>> rows, Iterable<String> existing) {
   final header = rows.first
       .map((c) => c?.toString().replaceAll('\uFEFF', '').trim() ?? '')
       .toList();
-  final hasHeader = header.any((s) => ['姓名', '人员', 'name'].contains(s.toLowerCase()));
+  final hasHeader = header.any(
+    (s) => ['姓名', '人员', 'name'].contains(s.toLowerCase()),
+  );
   final column = header.indexWhere(
     (s) => ['姓名', '人员', 'name'].contains(s.toLowerCase()),
   );
@@ -31,8 +38,14 @@ ImportPreview parsePeople(List<List<dynamic>> rows, Iterable<String> existing) {
     throw const FormatException('文件没有可导入的人员行');
   }
   final nameColumn = hasHeader && column >= 0 ? column : 0;
-  final genderColumn = hasHeader ? header.indexWhere((s) => ['性别', 'gender'].contains(s.toLowerCase())) : 1;
-  final idColumn = hasHeader ? header.indexWhere((s) => ['工号', '员工号', 'employeeid'].contains(s.toLowerCase())) : 2;
+  final genderColumn = hasHeader
+      ? header.indexWhere((s) => ['性别', 'gender'].contains(s.toLowerCase()))
+      : 1;
+  final idColumn = hasHeader
+      ? header.indexWhere(
+          (s) => ['工号', '员工号', 'employeeid'].contains(s.toLowerCase()),
+        )
+      : 2;
   final seen = existing.toSet();
   final names = <String>[];
   final issues = <String>[];
@@ -46,15 +59,30 @@ ImportPreview parsePeople(List<List<dynamic>> rows, Iterable<String> existing) {
       issues.add('第 ${i + 1} 行缺少姓名');
       continue;
     }
-    if (!seen.add(name)) {
-      issues.add('第 ${i + 1} 行“$name”重名，跳过');
-      continue;
+    var importedName = name;
+    if (!seen.add(importedName)) {
+      var suffix = 1;
+      while (seen.contains('$name$suffix')) {
+        suffix++;
+      }
+      importedName = '$name$suffix';
+      seen.add(importedName);
+      issues.add('第 ${i + 1} 行“$name”重名，已保存为“$importedName”；可在导入预览中取消。');
     }
-    names.add(name);
-    genders[name] = genderColumn >= 0 && rows[i].length > genderColumn ? rows[i][genderColumn].toString().trim() : '';
-    employeeIds[name] = idColumn >= 0 && rows[i].length > idColumn ? rows[i][idColumn].toString().trim() : '';
+    names.add(importedName);
+    genders[importedName] = genderColumn >= 0 && rows[i].length > genderColumn
+        ? rows[i][genderColumn].toString().trim()
+        : '';
+    employeeIds[importedName] = idColumn >= 0 && rows[i].length > idColumn
+        ? rows[i][idColumn].toString().trim()
+        : '';
   }
-  return ImportPreview(names, issues, gender: genders, employeeIds: employeeIds);
+  return ImportPreview(
+    names,
+    issues,
+    gender: genders,
+    employeeIds: employeeIds,
+  );
 }
 
 Future<ImportPreview?> pickPeople(Workspace store) async {
@@ -172,4 +200,63 @@ Future<String?> saveWorkbook(
     bytes: Uint8List.fromList(bytes),
   );
   return target?.toString();
+}
+
+Future<String?> saveCsv(
+  Workspace store,
+  List<Entry> entries,
+  Rect origin,
+) async {
+  final rows = <List<dynamic>>[exportColumns];
+  for (final e in entries) {
+    rows.add([
+      store.name(e.personId),
+      e.day,
+      e.fields['in'] ?? '',
+      e.fields['out'] ?? '',
+      e.fields['status'] ?? '',
+      e.fields['note'] ?? '',
+      e.author,
+      e.updatedAt,
+    ]);
+  }
+  final bytes = Uint8List.fromList(
+    utf8.encode(const ListToCsvConverter().convert(rows)),
+  );
+  final name = '青鸾考勤_${businessDay()}.csv';
+  if (Platform.isAndroid || Platform.isIOS) {
+    final path = '${(await getTemporaryDirectory()).path}/$name';
+    await File(path).writeAsBytes(bytes, flush: true);
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(path)], sharePositionOrigin: origin),
+    );
+    return name;
+  }
+  return (await FilePicker.saveFile(
+    fileName: name,
+    type: FileType.custom,
+    allowedExtensions: ['csv'],
+    bytes: bytes,
+  ))?.toString();
+}
+
+Future<String?> saveDatabase(Workspace store, Rect origin) async {
+  if (store.dataPath == '内存（测试）' || !File(store.dataPath).existsSync()) {
+    throw const FormatException('当前工作区尚未保存为 SQLite 文件');
+  }
+  final name = 'qingluan_${businessDay()}.db';
+  if (Platform.isAndroid || Platform.isIOS) {
+    await SharePlus.instance.share(
+      ShareParams(files: [XFile(store.dataPath)], sharePositionOrigin: origin),
+    );
+    return name;
+  }
+  final target = await FilePicker.saveFile(
+    fileName: name,
+    type: FileType.custom,
+    allowedExtensions: ['db'],
+    bytes: await File(store.dataPath).readAsBytes(),
+  );
+  if (target == null) return null;
+  return target.toString();
 }

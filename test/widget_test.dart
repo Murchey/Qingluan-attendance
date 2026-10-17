@@ -4,8 +4,33 @@ import 'package:qingluan_attendance/app/app.dart';
 import 'package:qingluan_attendance/core/data/workspace.dart';
 import 'package:qingluan_attendance/features/attendance/presentation/entry_editor.dart';
 import 'package:qingluan_attendance/features/sync/presentation/conflict_page.dart';
+import 'package:qingluan_attendance/features/sync/presentation/sync_page.dart';
 
 void main() {
+  test('sync summary prioritizes conflicts, then local pending changes', () {
+    final store = Workspace.memory();
+    expect(syncSummary(store).kind, SyncStatusKind.ready);
+
+    store.pendingDays.addAll(['2026-10-17', '2026-10-16']);
+    final pending = syncSummary(store);
+    expect(pending.kind, SyncStatusKind.pending);
+    expect(pending.count, 2);
+
+    store.remoteEntries.add(
+      Entry(
+        id: 'remote-1',
+        personId: 'person-1',
+        day: '2026-10-17',
+        fields: const {},
+        author: 'remote',
+        updatedAt: '2026-10-17T00:00:00Z',
+      ),
+    );
+    final conflict = syncSummary(store);
+    expect(conflict.kind, SyncStatusKind.conflict);
+    expect(conflict.count, 1);
+  });
+
   testWidgets(
     'home counts live records and quick entry edits the selected person',
     (tester) async {
@@ -31,9 +56,9 @@ void main() {
         tester
             .widget<Text>(find.byKey(const ValueKey('today-record-count')))
             .data,
-        '1',
+        '2',
       );
-      expect(find.text('还有 1 人待登记'), findsOneWidget);
+      expect(find.text('当前同步状态'), findsOneWidget);
       await tester.tap(find.text('今日登记'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('甲 · 已有记录'));
@@ -119,7 +144,7 @@ void main() {
     });
     final store = Workspace.memory();
     await tester.pumpWidget(QingLuanApp(store: store));
-    expect(find.text('今日已登记'), findsOneWidget);
+    expect(find.text('当前同步状态'), findsOneWidget);
     expect(find.text('今日登记'), findsOneWidget);
     expect(find.byType(CupertinoDatePicker), findsNothing);
     await tester.tap(find.text('记录'));
@@ -262,8 +287,12 @@ void main() {
         home: EntryEditor(store: store, day: '2026-10-17'),
       ),
     );
+    await tester.tap(find.text('登记人员'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('甲'));
     await tester.tap(find.text('乙'));
+    await tester.tap(find.text('完成选择'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(CupertinoTextField), '批量备注');
     await tester.ensureVisible(find.text('保存 2 人登记'));
     await tester.tap(find.text('保存 2 人登记'));

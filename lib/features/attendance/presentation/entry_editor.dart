@@ -120,31 +120,31 @@ class _EntryEditorState extends State<EntryEditor> {
     }
   }
 
+  Future<void> pickPeople() async {
+    final result = await Navigator.of(context).push<Set<String>>(
+      CupertinoPageRoute(
+        builder: (_) =>
+            PersonPickerPage(store: widget.store, selected: selected),
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        selected
+          ..clear()
+          ..addAll(result);
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) => CupertinoPageScaffold(
     child: Screen(
       title: widget.day,
       children: [
-        const Text('选择人员（可多选）'),
-        if (widget.store.activePeople.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(20),
-            child: Text('请先在设置 → 人员名单中新增或导入人员。'),
-          ),
-        ...widget.store.activePeople.map(
-          (p) => SettingRow(
-            p.name,
-            onTap: () => setState(
-              () => selected.contains(p.id)
-                  ? selected.remove(p.id)
-                  : selected.add(p.id),
-            ),
-            trailing: Icon(
-              selected.contains(p.id)
-                  ? CupertinoIcons.checkmark_circle_fill
-                  : CupertinoIcons.circle,
-            ),
-          ),
+        SettingRow(
+          '登记人员',
+          detail: selected.isEmpty ? '未选择' : '已选 ${selected.length} 人',
+          onTap: pickPeople,
         ),
         SettingRow(
           '签到时间',
@@ -218,4 +218,105 @@ class _EntryEditorState extends State<EntryEditor> {
       ],
     ),
   );
+}
+
+class PersonPickerPage extends StatefulWidget {
+  const PersonPickerPage({
+    super.key,
+    required this.store,
+    required this.selected,
+  });
+  final Workspace store;
+  final Set<String> selected;
+  @override
+  State<PersonPickerPage> createState() => _PersonPickerPageState();
+}
+
+class _PersonPickerPageState extends State<PersonPickerPage> {
+  late final Set<String> selected = {...widget.selected};
+  String query = '', gender = '';
+  @override
+  Widget build(BuildContext context) {
+    final people = widget.store.activePeople
+        .where(
+          (p) =>
+              (gender.isEmpty || p.gender == gender) &&
+              p.name.toLowerCase().contains(query.toLowerCase()),
+        )
+        .toList();
+    final genders = widget.store.activePeople
+        .map((p) => p.gender)
+        .where((g) => g.isNotEmpty)
+        .toSet()
+        .toList();
+    return CupertinoPageScaffold(
+      child: Screen(
+        title: '选择登记人员',
+        children: [
+          CupertinoSearchTextField(
+            placeholder: '搜索姓名',
+            onChanged: (v) => setState(() => query = v),
+          ),
+          Wrap(
+            spacing: 6,
+            children: [
+              CupertinoButton(
+                onPressed: () => setState(() => gender = ''),
+                child: Text(gender.isEmpty ? '全部性别 ✓' : '全部性别'),
+              ),
+              ...genders.map(
+                (g) => CupertinoButton(
+                  onPressed: () => setState(() => gender = g),
+                  child: Text(gender == g ? '$g ✓' : g),
+                ),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: CupertinoButton(
+                  onPressed: () =>
+                      setState(() => selected.addAll(people.map((p) => p.id))),
+                  child: const Text('全选当前结果'),
+                ),
+              ),
+              Expanded(
+                child: CupertinoButton(
+                  onPressed: () => setState(
+                    () => selected.removeAll(people.map((p) => p.id)),
+                  ),
+                  child: const Text('清除当前结果'),
+                ),
+              ),
+            ],
+          ),
+          Text('已选 ${selected.length} 人'),
+          ...people.map(
+            (p) => SettingRow(
+              p.name,
+              detail: [
+                p.gender,
+                p.employeeId,
+              ].where((s) => s.isNotEmpty).join(' · '),
+              onTap: () => setState(
+                () => selected.contains(p.id)
+                    ? selected.remove(p.id)
+                    : selected.add(p.id),
+              ),
+              trailing: Icon(
+                selected.contains(p.id)
+                    ? CupertinoIcons.checkmark_circle_fill
+                    : CupertinoIcons.circle,
+              ),
+            ),
+          ),
+          CupertinoButton.filled(
+            onPressed: () => Navigator.pop(context, selected),
+            child: const Text('完成选择'),
+          ),
+        ],
+      ),
+    );
+  }
 }

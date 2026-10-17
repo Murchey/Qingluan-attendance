@@ -85,6 +85,81 @@ class _RecordsPageState extends State<RecordsPage> {
     );
   }
 
+  Future<void> filters() async => showCupertinoModalPopup<void>(
+    context: context,
+    builder: (c) => Container(
+      height: 430,
+      color: CupertinoColors.systemBackground.resolveFrom(c),
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Text(
+              '筛选记录',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            ),
+            SettingRow(
+              '日期范围',
+              detail: from == null
+                  ? '不限'
+                  : '${from!.month}/${from!.day}—${to!.month}/${to!.day}',
+              onTap: () {
+                Navigator.pop(c);
+                range();
+              },
+            ),
+            SettingRow(
+              '人员',
+              detail: person.isEmpty ? '全部人员' : widget.store.name(person),
+              onTap: () async {
+                final v = await choose(context, '筛选人员', {
+                  '': '全部人员',
+                  for (final p in widget.store.visiblePeople) p.id: p.name,
+                });
+                if (v != null && mounted) setState(() => person = v);
+              },
+            ),
+            SettingRow(
+              '状态',
+              detail: status.isEmpty ? '全部状态' : status,
+              onTap: () async {
+                final v = await choose(context, '筛选状态', {
+                  '': '全部状态',
+                  for (final s in statuses) s: s,
+                });
+                if (v != null && mounted) setState(() => status = v);
+              },
+            ),
+            SettingRow(
+              '修改人',
+              detail: author.isEmpty ? '全部修改人' : author,
+              onTap: () async {
+                final v = await choose(context, '最后修改人', {
+                  '': '全部修改人',
+                  for (final e in widget.store.liveEntries) e.author: e.author,
+                });
+                if (v != null && mounted) setState(() => author = v);
+              },
+            ),
+            CupertinoButton(
+              onPressed: () {
+                setState(() {
+                  from = null;
+                  to = null;
+                  person = '';
+                  status = '';
+                  author = '';
+                });
+                Navigator.pop(c);
+              },
+              child: const Text('重置筛选'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
   Future<void> export() async {
     final rows = filtered;
     if (rows.isEmpty) {
@@ -174,13 +249,24 @@ class _RecordsPageState extends State<RecordsPage> {
             detail: f.value,
           ),
         ),
-        const Text('修改历史'),
-        ...e.history.map(
-          (h) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(h, style: const TextStyle(fontSize: 12)),
+        const Text('最近修改'),
+        ...e.history.reversed
+            .take(2)
+            .map(
+              (h) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(h, style: const TextStyle(fontSize: 12)),
+              ),
+            ),
+        if (e.history.length > 2)
+          CupertinoButton(
+            onPressed: () => Navigator.of(c).push(
+              CupertinoPageRoute<void>(
+                builder: (_) => HistoryPage(history: e.history),
+              ),
+            ),
+            child: Text('展示更多（${e.history.length - 2} 条）'),
           ),
-        ),
         CupertinoButton.filled(
           onPressed: () => openEditor(c, widget.store, e.day, entry: e),
           child: const Text('编辑登记'),
@@ -223,6 +309,24 @@ class _RecordsPageState extends State<RecordsPage> {
           onChanged: (s) => setState(() => query = s),
         ),
         const SizedBox(height: 12),
+        CupertinoButton(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          onPressed: filters,
+          child: Row(
+            children: [
+              const Icon(CupertinoIcons.slider_horizontal_3, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                '筛选${[person, status, author].where((s) => s.isNotEmpty).isEmpty ? '' : ' · 已启用'}',
+              ),
+              const Spacer(),
+              const Icon(CupertinoIcons.chevron_right, size: 14),
+            ],
+          ),
+        ),
+        /*
+          The filter controls live in the scrollable drawer above.
+          Keeping the query field visible makes the common search path one tap.
         Wrap(
           spacing: 6,
           children: [
@@ -275,7 +379,7 @@ class _RecordsPageState extends State<RecordsPage> {
               child: const Text('重置'),
             ),
           ],
-        ),
+        ),*/
         Text('共 ${rows.length} 条记录'),
         const SizedBox(height: 16),
         if (rows.isEmpty)
@@ -300,4 +404,35 @@ class _RecordsPageState extends State<RecordsPage> {
       ],
     );
   }
+}
+
+class HistoryPage extends StatelessWidget {
+  const HistoryPage({super.key, required this.history});
+  final List<String> history;
+  @override
+  Widget build(BuildContext context) => CupertinoPageScaffold(
+    child: Screen(
+      title: '修改历史',
+      children: [
+        GlassCard(
+          child: Column(
+            children: [
+              for (final item in history.reversed)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(CupertinoIcons.time, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(item)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }

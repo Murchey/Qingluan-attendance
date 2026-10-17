@@ -14,7 +14,14 @@ String businessDay([DateTime? instant]) => (instant ?? DateTime.now())
 const statuses = ['正常', '迟到', '早退', '请假', '缺勤'];
 
 class Person {
-  Person(this.id, this.name, {this.gender = '', this.employeeId = '', this.active = true, this.deleted = false});
+  Person(
+    this.id,
+    this.name, {
+    this.gender = '',
+    this.employeeId = '',
+    this.active = true,
+    this.deleted = false,
+  });
   final String id;
   String name;
   String gender;
@@ -163,22 +170,35 @@ class Workspace extends ChangeNotifier {
     await persist();
   }
 
-  Future<void> savePerson(String name, {Person? person}) async {
+  Future<void> savePerson(
+    String name, {
+    Person? person,
+    String gender = '',
+    String employeeId = '',
+  }) async {
     name = name.trim();
     if (name.isEmpty) throw const FormatException('姓名不能为空');
     if (visiblePeople.any((p) => p.id != person?.id && p.name == name)) {
       throw const FormatException('已有同名人员，请使用可区分的姓名');
     }
     if (person == null) {
-      people.add(Person(const Uuid().v4(), name));
+      people.add(
+        Person(const Uuid().v4(), name, gender: gender, employeeId: employeeId),
+      );
     } else {
       person.name = name;
+      person.gender = gender.isEmpty ? person.gender : gender;
+      person.employeeId = employeeId.isEmpty ? person.employeeId : employeeId;
     }
     pendingDays.add('人员名单');
     await persist();
   }
 
-  Future<void> updatePeople(List<Person> selected, {String? gender, String? employeeId}) async {
+  Future<void> updatePeople(
+    List<Person> selected, {
+    String? gender,
+    String? employeeId,
+  }) async {
     for (final person in selected) {
       if (gender != null) person.gender = gender;
       if (employeeId != null) person.employeeId = employeeId;

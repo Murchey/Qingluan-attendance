@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import '../../../core/data/workspace.dart';
 import '../../../core/widgets/ui.dart';
+import '../../../core/widgets/app_widgets.dart';
 
 const fieldLabels = {
   'in': '签到时间',
@@ -110,6 +111,17 @@ class _ConflictPageState extends State<ConflictPage> {
   Widget build(BuildContext context) => CupertinoPageScaffold(
     child: Screen(
       title: widget.day,
+      actions: [
+        GlassIconButton(
+          icon: CupertinoIcons.info,
+          label: '冲突合并说明',
+          onPressed: () => message(
+            context,
+            '冲突合并说明',
+            '红色为本地值，绿色为远端值。勾选要保留的字段后保存，结果会进入本地待上传队列。',
+          ),
+        ),
+      ],
       sidebarCount: 2,
       children: [
         const Text('表格可横向滚动。红色列为本地，绿色列为远端；勾选要保留的值。一键合并按字段更新时间选择，时间相同或缺失则保留本地。'),

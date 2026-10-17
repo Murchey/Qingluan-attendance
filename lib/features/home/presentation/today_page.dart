@@ -91,6 +91,7 @@ class TodayPage extends StatelessWidget {
     final registered = today.map((e) => e.personId).toSet();
     final count = people.where((p) => registered.contains(p.id)).length;
     final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final showTodayCard = store.settings['homeCard'] == 'today';
     return Screen(
       title: '今日概览',
       actions: [
@@ -118,14 +119,21 @@ class TodayPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('今日已登记', style: TextStyle(color: secondary, fontSize: 14)),
+              Text(
+                showTodayCard ? '今日已登记' : '当前同步状态',
+                style: TextStyle(color: secondary, fontSize: 14),
+              ),
               const SizedBox(height: 12),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.baseline,
                 textBaseline: TextBaseline.alphabetic,
                 children: [
                   Text(
-                    '$count',
+                    showTodayCard
+                        ? '$count'
+                        : (store.pendingDays.isEmpty
+                              ? '已同步'
+                              : '${store.pendingDays.length}'),
                     key: const ValueKey('today-record-count'),
                     style: const TextStyle(
                       fontSize: 48,
@@ -133,44 +141,50 @@ class TodayPage extends StatelessWidget {
                       height: 1.1,
                     ),
                   ),
-                  Text(
-                    ' / ${people.length} 人',
-                    style: TextStyle(fontSize: 18, color: secondary),
-                  ),
+                  if (showTodayCard)
+                    Text(
+                      ' / ${people.length} 人',
+                      style: TextStyle(fontSize: 18, color: secondary),
+                    ),
                 ],
               ),
               const SizedBox(height: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: SizedBox(
-                  height: 5,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ColoredBox(
-                            color: CupertinoColors.separator
-                                .resolveFrom(context)
-                                .withValues(alpha: .15),
+              if (showTodayCard)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: SizedBox(
+                    height: 5,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => Stack(
+                        children: [
+                          Positioned.fill(
+                            child: ColoredBox(
+                              color: CupertinoColors.separator
+                                  .resolveFrom(context)
+                                  .withValues(alpha: .15),
+                            ),
                           ),
-                        ),
-                        SizedBox(
-                          width:
-                              constraints.maxWidth *
-                              (people.isEmpty ? 0 : count / people.length),
-                          height: 5,
-                          child: ColoredBox(
-                            color: CupertinoTheme.of(context).primaryColor,
+                          SizedBox(
+                            width:
+                                constraints.maxWidth *
+                                (people.isEmpty ? 0 : count / people.length),
+                            height: 5,
+                            child: ColoredBox(
+                              color: CupertinoTheme.of(context).primaryColor,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
               const SizedBox(height: 12),
               Text(
-                people.isEmpty
+                !showTodayCard
+                    ? (store.pendingDays.isEmpty
+                          ? '本地数据没有待上传变更'
+                          : '进入同步中心查看待上传项目')
+                    : people.isEmpty
                     ? '添加人员后开始今天的登记'
                     : count == people.length
                     ? '今日登记已完成'

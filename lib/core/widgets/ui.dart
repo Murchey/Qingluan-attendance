@@ -74,17 +74,32 @@ Future<String?> input(
   bool copyable = false,
 }) async {
   final controller = TextEditingController(text: value);
-  final result = await showCupertinoModalPopup<String>(
+  final result = await showGeneralDialog<String>(
     context: context,
-    builder: (c) => _InputSheet(
-      title: title,
-      controller: controller,
-      secret: secret,
-      copyable: copyable,
+    barrierDismissible: true,
+    barrierLabel: '取消',
+    barrierColor: const Color(0x52000000),
+    transitionDuration: const Duration(milliseconds: 160),
+    transitionBuilder: (context, animation, secondaryAnimation, child) =>
+        SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 1),
+            end: Offset.zero,
+          ).chain(CurveTween(curve: Curves.easeOutCubic)).animate(animation),
+          child: child,
+        ),
+    pageBuilder: (c, animation, secondaryAnimation) => Align(
+      alignment: Alignment.bottomCenter,
+      child: _InputSheet(
+        title: title,
+        controller: controller,
+        secret: secret,
+        copyable: copyable,
+      ),
     ),
   );
   // A dialog may still animate out after its future resolves.
-  await Future<void>.delayed(const Duration(milliseconds: 300));
+  await Future<void>.delayed(const Duration(milliseconds: 180));
   controller.dispose();
   return result;
 }

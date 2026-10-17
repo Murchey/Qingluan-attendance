@@ -5,6 +5,7 @@ import 'package:qingluan_attendance/core/data/workspace.dart';
 import 'package:qingluan_attendance/features/attendance/presentation/entry_editor.dart';
 import 'package:qingluan_attendance/features/sync/presentation/conflict_page.dart';
 import 'package:qingluan_attendance/features/sync/presentation/sync_page.dart';
+import 'package:qingluan_attendance/features/settings/presentation/settings_page.dart';
 
 void main() {
   test('sync summary prioritizes conflicts, then local pending changes', () {
@@ -29,6 +30,24 @@ void main() {
     final conflict = syncSummary(store);
     expect(conflict.kind, SyncStatusKind.conflict);
     expect(conflict.count, 1);
+  });
+
+  testWidgets('settings text fields open the bottom input sheet', (
+    tester,
+  ) async {
+    final store = Workspace.memory();
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: SettingsPage(store: store, section: '对象存储'),
+      ),
+    );
+    await tester.tap(find.text('存储桶直链'));
+    await tester.pumpAndSettle();
+    expect(find.text('存储桶直链'), findsWidgets);
+    expect(find.byType(CupertinoTextField), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+
   });
 
   testWidgets(

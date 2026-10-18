@@ -1,27 +1,43 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
 import '../../../core/data/workspace.dart';
+import '../../../core/reminders/notice_service.dart';
+import '../../../core/theme/glass_spec.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../home/presentation/today_page.dart';
+import '../../notice/presentation/notice_panel.dart';
 import '../../records/presentation/records_page.dart';
 import '../../sync/presentation/sync_page.dart';
 import '../../settings/presentation/settings_page.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.store});
+  const AppShell({super.key, required this.store, this.noticeSource});
   final Workspace store;
+
+  /// Injectable notification transport so tests never touch the network.
+  final NoticeSource? noticeSource;
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int index = 0;
+  int? pressed;
   bool slowDevice = false;
   int measuredFrames = 0, slowFrames = 0;
+  DateTime? _leftForegroundAt;
+  bool _checking = false;
+  static const resumeSyncGap = Duration(hours: 1);
+
   @override
   void initState() {
     super.initState();
     SchedulerBinding.instance.addTimingsCallback(_frameTimings);
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _autoSync(initial: true),
+    );
   }
 
   void _frameTimings(List<FrameTiming> timings) {
@@ -38,25 +54,68 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  /// One sync per cold start; after backgrounding, only when the app has been
+  /// away longer than an hour, so request counts stay low.
+  Future<void> _autoSync({bool initial = false}) async {
+    if (_checking) return;
+    if (!initial && widget.store.settings['autoSync'] == false) return;
+    _checking = true;
+    try {
+      final result = await syncNotices(
+        widget.store,
+        source: widget.noticeSource,
+      );
+      if (!mounted || !result.hasNews) return;
+      await presentNoticeResult(context, widget.store, result);
+    } finally {
+      _checking = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final left = _leftForegroundAt;
+      _leftForegroundAt = null;
+      if (left != null && DateTime.now().difference(left) >= resumeSyncGap) {
+        _autoSync();
+      }
+      return;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _leftForegroundAt ??= DateTime.now();
+    }
+  }
+
   final controller = PageController();
-  final labels = const ['今日', '记录', '同步', '设置'];
+  final labels = const ['首页', '记录', '同步', '设置'];
   final icons = const [
     CupertinoIcons.house,
     CupertinoIcons.list_bullet,
     CupertinoIcons.cloud,
     CupertinoIcons.gear,
   ];
+  final activeIcons = const [
+    CupertinoIcons.house_fill,
+    CupertinoIcons.rectangle_stack_fill,
+    CupertinoIcons.cloud_fill,
+    CupertinoIcons.gear_solid,
+  ];
+
   void select(int i) {
+    if (index != i) HapticFeedback.selectionClick();
     setState(() => index = i);
     controller.animateToPage(
       i,
-      duration: const Duration(milliseconds: 220),
+      duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
     );
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     SchedulerBinding.instance.removeTimingsCallback(_frameTimings);
     controller.dispose();
     super.dispose();
@@ -87,22 +146,29 @@ class _AppShellState extends State<AppShell> {
                   SettingsPage(store: widget.store),
                 ],
               ),
-              if (MediaQuery.viewInsetsOf(context).bottom == 0)
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: MediaQuery.paddingOf(context).bottom + 12,
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 480),
-                      child: GlassCard(
-                        navigation: true,
-                        padding: const EdgeInsets.all(6),
-                        child: SizedBox(height: 56, child: _navigation()),
+              // Keep the capsule mounted while the keyboard is open: hiding it
+              // on an inset change made the layout jump behind modal panels.
+              Positioned(
+                left: GlassSpec.navInset,
+                right: GlassSpec.navInset,
+                bottom:
+                    MediaQuery.paddingOf(context).bottom +
+                    GlassSpec.navBottomGap,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480),
+                    child: GlassCard(
+                      navigation: true,
+                      radius: GlassSpec.navHeight / 2,
+                      padding: const EdgeInsets.all(GlassSpec.indicatorInset),
+                      child: SizedBox(
+                        height: GlassSpec.navHeight - 8,
+                        child: _navigation(),
                       ),
                     ),
                   ),
                 ),
+              ),
             ],
           ),
         ),
@@ -113,7 +179,6 @@ class _AppShellState extends State<AppShell> {
   Widget _navigation() => LayoutBuilder(
     builder: (context, constraints) {
       final width = constraints.maxWidth / 4;
-      final dark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
       void drag(DragUpdateDetails details) {
         if (!controller.hasClients) return;
         final page =
@@ -141,59 +206,80 @@ class _AppShellState extends State<AppShell> {
         onHorizontalDragCancel: settle,
         child: AnimatedBuilder(
           animation: controller,
-          builder: (context, _) => Stack(
-            children: [
-              Positioned(
-                left:
-                    (controller.hasClients
-                            ? controller.page ?? index.toDouble()
-                            : index.toDouble())
-                        .clamp(0.0, 3.0) *
-                    width,
-                top: 0,
-                bottom: 0,
-                width: width,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: CupertinoTheme.of(
-                      context,
-                    ).primaryColor.withValues(alpha: dark ? .15 : .08),
-                    borderRadius: BorderRadius.circular(26),
+          builder: (context, _) {
+            final position =
+                (controller.hasClients
+                        ? controller.page ?? index.toDouble()
+                        : index.toDouble())
+                    .clamp(0.0, 3.0);
+            return Stack(
+              children: [
+                Positioned(
+                  left: width * position + GlassSpec.indicatorInset,
+                  top: GlassSpec.indicatorInset,
+                  bottom: GlassSpec.indicatorInset,
+                  width: width - GlassSpec.indicatorInset * 2,
+                  child: const GlassIndicator(
+                    radius: GlassSpec.indicatorRadius,
                   ),
                 ),
-              ),
-              Row(children: List.generate(4, (i) => _navItem(context, i))),
-            ],
-          ),
+                Row(children: List.generate(4, (i) => _navItem(context, i))),
+              ],
+            );
+          },
         ),
       );
     },
   );
+
   Widget _navItem(BuildContext context, int i) {
-    final color = index == i
-        ? CupertinoTheme.of(context).primaryColor
+    final selected = index == i;
+    final color = selected
+        ? CupertinoColors.label.resolveFrom(context)
         : CupertinoColors.secondaryLabel.resolveFrom(context);
     return Expanded(
       child: Semantics(
         button: true,
-        selected: index == i,
+        selected: selected,
         label: labels[i],
-        child: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => select(i),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icons[i], size: 21, color: color),
-              Text(
-                labels[i],
-                style: TextStyle(
-                  fontSize: 11,
-                  color: color,
-                  fontWeight: index == i ? FontWeight.w700 : FontWeight.w500,
-                ),
+        child: Listener(
+          onPointerDown: (_) => setState(() => pressed = i),
+          onPointerUp: (_) {
+            if (mounted) setState(() => pressed = null);
+          },
+          onPointerCancel: (_) {
+            if (mounted) setState(() => pressed = null);
+          },
+          child: AnimatedScale(
+            scale: pressed == i ? .94 : 1,
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              pressedOpacity: 1,
+              onPressed: () => select(i),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    selected ? activeIcons[i] : icons[i],
+                    size: selected ? 22 : 21,
+                    color: color,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    labels[i],
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: color,
+                      fontWeight: selected
+                          ? FontWeight.w600
+                          : FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

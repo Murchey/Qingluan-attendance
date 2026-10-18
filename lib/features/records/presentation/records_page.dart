@@ -1,7 +1,10 @@
 import 'package:flutter/cupertino.dart';
 import '../../../core/data/workspace.dart';
 import '../../../core/data/spreadsheet_io.dart';
+import '../../../core/widgets/calendar_board.dart';
+import '../../../core/widgets/sheet.dart';
 import '../../../core/widgets/ui.dart';
+import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../attendance/presentation/entry_editor.dart';
 
@@ -22,89 +25,45 @@ class _RecordsPageState extends State<RecordsPage> {
                 (person.isEmpty || e.personId == person) &&
                 (status.isEmpty || e.fields['status'] == status) &&
                 (author.isEmpty || e.author == author) &&
-                (from == null ||
-                    e.day.compareTo(from!.toIso8601String().substring(0, 10)) >=
-                        0) &&
-                (to == null ||
-                    e.day.compareTo(to!.toIso8601String().substring(0, 10)) <=
-                        0) &&
+                (from == null || e.day.compareTo(dayKey(from!)) >= 0) &&
+                (to == null || e.day.compareTo(dayKey(to!)) <= 0) &&
                 '${widget.store.name(e.personId)} ${e.fields['note']}'
                     .toLowerCase()
                     .contains(query.toLowerCase()),
           )
           .toList()
         ..sort((a, b) => b.day.compareTo(a.day));
+
   Future<void> range() async {
-    var start =
-        from ??
-        DateTime.parse(businessDay()).subtract(const Duration(days: 30));
-    var end = to ?? DateTime.parse(businessDay());
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (c) => Container(
-        height: 480,
-        color: CupertinoColors.systemBackground.resolveFrom(c),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              CupertinoButton(
-                onPressed: () {
-                  if (start.isAfter(end)) {
-                    message(c, '日期范围无效', '开始日期不能晚于结束日期。');
-                    return;
-                  }
-                  setState(() {
-                    from = start;
-                    to = end;
-                  });
-                  Navigator.pop(c);
-                },
-                child: const Text('应用日期范围'),
-              ),
-              const Text('开始日期'),
-              Expanded(
-                child: CupertinoDatePicker(
-                  mode: CupertinoDatePickerMode.date,
-                  initialDateTime: start,
-                  onDateTimeChanged: (v) => start = v,
-                ),
-              ),
-              const Text('结束日期'),
-              Expanded(
-                child: CupertinoDatePicker(
-                  mode: CupertinoDatePickerMode.date,
-                  initialDateTime: end,
-                  onDateTimeChanged: (v) => end = v,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    final picked = await showRangeSheet(
+      context,
+      from: from == null ? null : dayKey(from!),
+      to: to == null ? null : dayKey(to!),
+      title: '筛选日期范围',
+      subtitle: '点选开始与结束日期，红色为请假日期',
     );
+    if (picked == null || !mounted) return;
+    setState(() {
+      from = DateTime.parse(picked.$1);
+      to = DateTime.parse(picked.$2);
+    });
   }
 
-  Future<void> filters() async => showCupertinoModalPopup<void>(
-    context: context,
-    builder: (c) => Container(
-      height: 430,
-      color: CupertinoColors.systemBackground.resolveFrom(c),
-      child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
+  Future<void> filters() => showAppSheet<void>(
+    context,
+    (sheetContext) => StatefulBuilder(
+      builder: (context, update) => SheetPanel(
+        title: '筛选记录',
+        subtitle: '条件会立即应用到下方的历史列表',
+        child: Column(
           children: [
-            const Text(
-              '筛选记录',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-            ),
             SettingRow(
               '日期范围',
               detail: from == null
                   ? '不限'
-                  : '${from!.month}/${from!.day}—${to!.month}/${to!.day}',
+                  : '${dayKey(from!)} — ${dayKey(to!)}',
               onTap: () {
-                Navigator.pop(c);
+                Navigator.of(sheetContext).pop();
                 range();
               },
             ),
@@ -112,33 +71,42 @@ class _RecordsPageState extends State<RecordsPage> {
               '人员',
               detail: person.isEmpty ? '全部人员' : widget.store.name(person),
               onTap: () async {
-                final v = await choose(context, '筛选人员', {
+                final v = await choose<String>(context, '筛选人员', {
                   '': '全部人员',
                   for (final p in widget.store.visiblePeople) p.id: p.name,
                 });
-                if (v != null && mounted) setState(() => person = v);
+                if (v != null && mounted) {
+                  setState(() => person = v);
+                  update(() {});
+                }
               },
             ),
             SettingRow(
               '状态',
               detail: status.isEmpty ? '全部状态' : status,
               onTap: () async {
-                final v = await choose(context, '筛选状态', {
+                final v = await choose<String>(context, '筛选状态', {
                   '': '全部状态',
                   for (final s in statuses) s: s,
                 });
-                if (v != null && mounted) setState(() => status = v);
+                if (v != null && mounted) {
+                  setState(() => status = v);
+                  update(() {});
+                }
               },
             ),
             SettingRow(
               '修改人',
               detail: author.isEmpty ? '全部修改人' : author,
               onTap: () async {
-                final v = await choose(context, '最后修改人', {
+                final v = await choose<String>(context, '最后修改人', {
                   '': '全部修改人',
                   for (final e in widget.store.liveEntries) e.author: e.author,
                 });
-                if (v != null && mounted) setState(() => author = v);
+                if (v != null && mounted) {
+                  setState(() => author = v);
+                  update(() {});
+                }
               },
             ),
             CupertinoButton(
@@ -150,11 +118,24 @@ class _RecordsPageState extends State<RecordsPage> {
                   status = '';
                   author = '';
                 });
-                Navigator.pop(c);
+                Navigator.of(sheetContext).pop();
               },
               child: const Text('重置筛选'),
             ),
           ],
+        ),
+        footer: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: const SizedBox(
+            height: 52,
+            child: Center(
+              child: Text(
+                '完成',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
         ),
       ),
     ),
@@ -167,40 +148,47 @@ class _RecordsPageState extends State<RecordsPage> {
       return;
     }
     final columns = exportColumns.toSet();
-    final accepted = await showCupertinoModalPopup<bool>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (c, update) => Container(
-          height: 560,
-          color: CupertinoColors.systemBackground.resolveFrom(c),
-          child: SafeArea(
-            top: false,
-            child: ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                const Text('导出当前筛选范围 · 选择字段'),
-                ...exportColumns.map(
-                  (s) => SettingRow(
-                    s,
-                    onTap: () => update(
-                      () => columns.contains(s)
-                          ? columns.remove(s)
-                          : columns.add(s),
-                    ),
-                    trailing: Icon(
-                      columns.contains(s)
-                          ? CupertinoIcons.checkmark_circle_fill
-                          : CupertinoIcons.circle,
-                    ),
+    final accepted = await showAppSheet<bool>(
+      context,
+      (sheetContext) => StatefulBuilder(
+        builder: (context, update) => SheetPanel(
+          title: '导出 Excel',
+          subtitle: '导出当前筛选范围 · ${rows.length} 条记录 · 选择字段',
+          child: Column(
+            children: [
+              for (final s in exportColumns)
+                SettingRow(
+                  s,
+                  onTap: () => update(
+                    () => columns.contains(s)
+                        ? columns.remove(s)
+                        : columns.add(s),
+                  ),
+                  trailing: Icon(
+                    columns.contains(s)
+                        ? CupertinoIcons.checkmark_circle_fill
+                        : CupertinoIcons.circle,
+                    color: columns.contains(s)
+                        ? CupertinoTheme.of(context).primaryColor
+                        : CupertinoColors.tertiaryLabel.resolveFrom(context),
+                    size: 20,
                   ),
                 ),
-                CupertinoButton.filled(
-                  onPressed: columns.isEmpty
-                      ? null
-                      : () => Navigator.pop(c, true),
-                  child: Text('导出 ${rows.length} 条'),
+            ],
+          ),
+          footer: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: columns.isEmpty
+                ? null
+                : () => Navigator.of(sheetContext).pop(true),
+            child: const SizedBox(
+              height: 52,
+              child: Center(
+                child: Text(
+                  '导出',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -237,62 +225,115 @@ class _RecordsPageState extends State<RecordsPage> {
       ),
     ),
   );
+
   Widget _detailBody(BuildContext c, Entry e) => CupertinoPageScaffold(
     child: Screen(
       title: widget.store.name(e.personId),
       children: [
-        Text(e.day),
-        ...e.fields.entries.map(
-          (f) => SettingRow(
-            {'in': '签到', 'out': '签退', 'status': '状态', 'note': '备注'}[f.key] ??
-                f.key,
-            detail: f.value,
+        Text(
+          e.day,
+          style: AppType.footnoteStyle.copyWith(
+            color: CupertinoColors.secondaryLabel.resolveFrom(c),
           ),
         ),
-        const Text('最近修改'),
-        ...e.history.reversed
-            .take(2)
-            .map(
-              (h) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(h, style: const TextStyle(fontSize: 12)),
+        const SizedBox(height: Gap.xs),
+        SettingsGroup(
+          children: [
+            for (final f in e.fields.entries)
+              SettingRow(
+                {
+                      'in': '签到',
+                      'out': '签退',
+                      'status': '状态',
+                      'note': '备注',
+                    }[f.key] ??
+                    f.key,
+                detail: f.value.isEmpty ? '未填写' : f.value,
               ),
-            ),
+          ],
+        ),
+        const SizedBox(height: Gap.lg),
+        const GroupLabel('最近修改'),
+        SettingsGroup(
+          children: [
+            for (final h in e.history.reversed.take(2))
+              SettingRow(
+                prettyHistory(h),
+                leading: Icon(
+                  CupertinoIcons.time,
+                  size: Sizes.icon - 3,
+                  color: CupertinoColors.tertiaryLabel.resolveFrom(c),
+                ),
+              ),
+          ],
+        ),
         if (e.history.length > 2)
-          CupertinoButton(
-            onPressed: () => Navigator.of(c).push(
-              CupertinoPageRoute<void>(
-                builder: (_) => HistoryPage(history: e.history),
+          Align(
+            alignment: Alignment.center,
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+              onPressed: () => Navigator.of(c).push(
+                CupertinoPageRoute<void>(
+                  builder: (_) => HistoryPage(history: e.history),
+                ),
+              ),
+              child: Text(
+                '全部 ${e.history.length} 条历史',
+                style: AppType.footnoteStyle.copyWith(
+                  color: CupertinoTheme.of(c).primaryColor,
+                ),
               ),
             ),
-            child: Text('展示更多（${e.history.length - 2} 条）'),
           ),
-        CupertinoButton.filled(
+        const SizedBox(height: Gap.md),
+        PrimaryButton(
           onPressed: () => openEditor(c, widget.store, e.day, entry: e),
           child: const Text('编辑登记'),
         ),
-        CupertinoButton(
-          onPressed: () => guarded(c, () async {
-            if (await confirm(c, '删除这条记录？', '会保留删除标记和审计历史，并在后续同步。')) {
-              await widget.store.deleteEntry(e);
-              if (c.mounted) Navigator.pop(c);
-            }
-          }),
-          child: const Text(
-            '删除记录',
-            style: TextStyle(color: CupertinoColors.destructiveRed),
-          ),
+        const SizedBox(height: Gap.lg),
+        SettingsGroup(
+          children: [
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(vertical: Gap.sm),
+              pressedOpacity: .5,
+              onPressed: () => guarded(c, () async {
+                if (await confirm(
+                  c,
+                  '删除这条记录？',
+                  '会保留删除标记和审计历史，并在后续同步。',
+                )) {
+                  await widget.store.deleteEntry(e);
+                  if (c.mounted) Navigator.pop(c);
+                }
+              }),
+              child: const SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: Center(
+                  child: Text(
+                    '删除记录',
+                    style: TextStyle(
+                      fontSize: 17,
+                      color: CupertinoColors.destructiveRed,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     ),
-  );
-  @override
+  );  @override
   Widget build(BuildContext context) {
     final rows = filtered;
     final groups = <String, List<Entry>>{};
     for (final row in rows) {
       groups.putIfAbsent(row.day, () => []).add(row);
     }
+    final active = [person, status, author].where((s) => s.isNotEmpty).length;
+    final filtersOn = active + (from == null ? 0 : 1);
+    final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
     return Screen(
       title: '历史记录',
       sidebarCount: 3,
@@ -304,84 +345,51 @@ class _RecordsPageState extends State<RecordsPage> {
         ),
       ],
       children: [
-        CupertinoSearchTextField(
-          placeholder: '搜索姓名或备注',
-          onChanged: (s) => setState(() => query = s),
-        ),
-        const SizedBox(height: 12),
-        CupertinoButton(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          onPressed: filters,
-          child: Row(
-            children: [
-              const Icon(CupertinoIcons.slider_horizontal_3, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                '筛选${[person, status, author].where((s) => s.isNotEmpty).isEmpty ? '' : ' · 已启用'}',
-              ),
-              const Spacer(),
-              const Icon(CupertinoIcons.chevron_right, size: 14),
-            ],
-          ),
-        ),
-        /*
-          The filter controls live in the scrollable drawer above.
-          Keeping the query field visible makes the common search path one tap.
-        Wrap(
-          spacing: 6,
+        Row(
           children: [
-            CupertinoButton(
-              onPressed: range,
-              child: Text(
-                from == null
-                    ? '日期范围'
-                    : '${from!.month}/${from!.day}—${to!.month}/${to!.day}',
+            Expanded(
+              child: CupertinoSearchTextField(
+                placeholder: '搜索姓名或备注',
+                onChanged: (s) => setState(() => query = s),
               ),
             ),
-            CupertinoButton(
-              onPressed: () async {
-                final v = await choose(context, '筛选人员', {
-                  '': '全部人员',
-                  for (final p in widget.store.people) p.id: p.name,
-                });
-                if (v != null) setState(() => person = v);
-              },
-              child: Text(person.isEmpty ? '人员' : widget.store.name(person)),
-            ),
-            CupertinoButton(
-              onPressed: () async {
-                final v = await choose(context, '筛选状态', {
-                  '': '全部状态',
-                  for (final s in statuses) s: s,
-                });
-                if (v != null) setState(() => status = v);
-              },
-              child: Text(status.isEmpty ? '状态' : status),
-            ),
-            CupertinoButton(
-              onPressed: () async {
-                final v = await choose(context, '最后修改人', {
-                  '': '全部修改人',
-                  for (final e in widget.store.liveEntries) e.author: e.author,
-                });
-                if (v != null) setState(() => author = v);
-              },
-              child: Text(author.isEmpty ? '修改人' : author),
-            ),
-            CupertinoButton(
-              onPressed: () => setState(() {
-                from = null;
-                to = null;
-                person = '';
-                status = '';
-                author = '';
-              }),
-              child: const Text('重置'),
+            const SizedBox(width: Gap.xs),
+            GlassIconButton(
+              icon: CupertinoIcons.slider_horizontal_3,
+              label: '筛选记录',
+              onPressed: filters,
             ),
           ],
-        ),*/
-        Text('共 ${rows.length} 条记录'),
-        const SizedBox(height: 16),
+        ),
+        const SizedBox(height: Gap.sm),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '共 ${rows.length} 条记录',
+                style: AppType.footnoteStyle.copyWith(color: secondary),
+              ),
+            ),
+            if (filtersOn > 0)
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: Gap.xxs),
+                onPressed: () => setState(() {
+                  from = null;
+                  to = null;
+                  person = '';
+                  status = '';
+                  author = '';
+                }),
+                child: Text(
+                  '清除 $filtersOn 项筛选',
+                  style: AppType.footnoteStyle.copyWith(
+                    color: CupertinoTheme.of(context).primaryColor,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: Gap.xs),
         if (rows.isEmpty)
           const EmptyState(
             icon: CupertinoIcons.doc_text_search,
@@ -390,8 +398,22 @@ class _RecordsPageState extends State<RecordsPage> {
           ),
         for (final day in groups.keys) ...[
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: SectionTitle('$day · ${groups[day]!.length} 人'),
+            padding: const EdgeInsets.only(top: Gap.lg, bottom: Gap.xs),
+            child: Row(
+              children: [
+                Text(
+                  day,
+                  style: AppType.groupLabel.copyWith(color: secondary),
+                ),
+                const SizedBox(width: Gap.xs),
+                Text(
+                  '${groups[day]!.length} 人',
+                  style: AppType.caption.copyWith(
+                    color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+                  ),
+                ),
+              ],
+            ),
           ),
           ...groups[day]!.map(
             (e) => EntryTile(
@@ -404,6 +426,14 @@ class _RecordsPageState extends State<RecordsPage> {
       ],
     );
   }
+}
+/// `2026-10-18T03:25:52.167Z · 管理员 · 保存登记` → readable local time.
+String prettyHistory(String line) {
+  final match = RegExp(
+    r'^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(:\d{2})?([.0-9]*)?Z?',
+  ).firstMatch(line);
+  if (match == null) return line;
+  return line.replaceRange(0, match.end, '${match[1]} ${match[2]}');
 }
 
 class HistoryPage extends StatelessWidget {

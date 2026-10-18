@@ -1,9 +1,13 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'app/app.dart';
 import 'core/data/workspace.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Draw behind the status and navigation bars so the layered backdrop is not
+  // cut off by a black system bar strip.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(const Bootstrap());
 }
 

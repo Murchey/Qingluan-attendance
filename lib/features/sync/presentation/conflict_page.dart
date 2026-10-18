@@ -179,7 +179,7 @@ class _ConflictPageState extends State<ConflictPage> {
           ),
         ],
         const SizedBox(height: 24),
-        CupertinoButton.filled(
+        PrimaryButton(
           onPressed: remote.isEmpty ? null : save,
           child: const Text('保存合并 · 等待上传'),
         ),

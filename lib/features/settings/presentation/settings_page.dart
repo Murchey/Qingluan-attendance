@@ -4,9 +4,16 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/data/workspace.dart';
 import '../../../core/data/spreadsheet_io.dart';
 import '../../../core/widgets/ui.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/app_widgets.dart';
+import '../../../core/widgets/sheet.dart';
 import '../../../core/widgets/licenses_screen.dart';
 import '../../../core/config/bucket_address.dart';
+import '../../leave/presentation/leave_page.dart';
+import '../../notice/presentation/notice_panel.dart';
+import '../../stats/domain/attendance_score.dart';
+import '../../stats/presentation/score_rules_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.store, this.section});
@@ -127,42 +134,104 @@ class _SettingsPageState extends State<SettingsPage> {
       title: widget.section ?? '设置',
       children: [
         if (widget.section == null) ...[
-          _group('工作区', [
-            SettingRow(
+          _group('工作区', inset: 58, [
+            _row(
+              context,
               '本地身份',
               detail: store.identity.isEmpty ? '设置登记时使用的显示名' : store.identity,
+              icon: CupertinoIcons.person_crop_circle,
+              tint: AppColors.navy,
               onTap: () => openSection('本地身份'),
             ),
-            SettingRow(
+            _row(
+              context,
               '人员名单',
               detail: '${store.activePeople.length} 名启用人员',
+              icon: CupertinoIcons.person_2,
+              tint: AppColors.success,
               onTap: people,
             ),
+            _row(
+              context,
+              '请假记录',
+              detail:
+                  '${store.leavesOn(businessDay()).length} 人今日请假 · '
+                  '共 ${store.liveLeaves.length} 条',
+              icon: CupertinoIcons.calendar_badge_minus,
+              tint: AppColors.leave,
+              onTap: () => Navigator.of(context).push(
+                CupertinoPageRoute<void>(
+                  builder: (_) => LeavePage(store: store),
+                ),
+              ),
+            ),
+            _row(
+              context,
+              '考勤扣分规则',
+              detail: scoreRulesOf(store).summary,
+              icon: CupertinoIcons.chart_bar_alt_fill,
+              tint: AppColors.navy,
+              onTap: () => openScoreRules(context, store),
+            ),
           ]),
-          _group('偏好与服务', [
-            SettingRow(
+          _group('偏好与服务', inset: 58, [
+            _row(
+              context,
               '外观',
               detail: themeLabel,
+              icon: CupertinoIcons.paintbrush,
+              tint: const Color(0xFF7B61C9),
               onTap: () => openSection('外观'),
             ),
-            SettingRow(
+            _row(
+              context,
+              '通知',
+              detail: store.notices['lastResult']?.toString() ?? '尚未检查通知',
+              icon: CupertinoIcons.bell,
+              tint: AppColors.warning,
+              onTap: () => openSection('通知'),
+            ),
+            _row(
+              context,
               '对象存储',
               detail: provider,
+              icon: CupertinoIcons.cloud,
+              tint: const Color(0xFF2B8A9E),
               onTap: () => openSection('对象存储'),
             ),
-            SettingRow('时间', onTap: () => openSection('时间')),
-            SettingRow('自动更新', onTap: () => openSection('自动更新')),
-            SettingRow('数据导出', onTap: () => openSection('数据导出')),
+            _row(
+              context,
+              '时间',
+              icon: CupertinoIcons.clock,
+              tint: const Color(0xFFB5651D),
+              onTap: () => openSection('时间'),
+            ),
+            _row(
+              context,
+              '自动更新',
+              icon: CupertinoIcons.arrow_down_circle,
+              tint: AppColors.success,
+              onTap: () => openSection('自动更新'),
+            ),
+            _row(
+              context,
+              '数据导出',
+              icon: CupertinoIcons.square_arrow_up,
+              tint: const Color(0xFF3A6EA5),
+              onTap: () => openSection('数据导出'),
+            ),
           ]),
-          _group('应用', [
-            SettingRow(
+          _group('应用', inset: 58, [
+            _row(
+              context,
               '关于',
               detail: '青鸾考勤 1.0.0',
+              icon: CupertinoIcons.info_circle,
+              tint: AppColors.muted,
               onTap: () => openSection('关于'),
             ),
           ]),
-        ],
-        if (widget.section == '本地身份')
+        ],        if (widget.section == '本地身份')
           _group('本地身份', [
             SettingRow(
               '显示名',
@@ -281,6 +350,56 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
           ]),
+        if (widget.section == '通知')
+          _group('通知', [
+            SettingRow(
+              '管理员通知',
+              detail: store.noticeBody('admin').isEmpty
+                  ? '尚未收到管理员通知'
+                  : (store.noticeTitle('admin').isEmpty
+                        ? '已收到，点按查看'
+                        : store.noticeTitle('admin')),
+              onTap: () => refreshNotices(context, store),
+            ),
+            SettingRow(
+              '开发者通知',
+              detail: store.noticeBody('dev').isEmpty
+                  ? '尚未收到开发者通知'
+                  : (store.noticeTitle('dev').isEmpty
+                        ? '已收到，点按查看'
+                        : store.noticeTitle('dev')),
+              onTap: () => refreshNotices(context, store),
+            ),
+            SettingRow(
+              '通知中心',
+              detail: store.notices['lastResult']?.toString() ?? '尚未检查通知',
+              onTap: () => showNoticeCenterSheet(
+                context,
+                store,
+                onRefresh: () =>
+                    refreshNotices(context, store, quietWhenIdle: true),
+              ),
+            ),
+            SettingRow(
+              '待上传通知草稿',
+              detail: store.noticeOutbox.isEmpty
+                  ? '没有待上传通知'
+                  : '${store.noticeOutbox.length} 条 · 点按预览',
+              onTap: () => drafts(),
+            ),
+            SettingRow(
+              '自动检查（冷启动 + 回前台超过 1 小时）',
+              detail: '只拉取 index.json，版本变化时才下载正文',
+              trailing: CupertinoSwitch(
+                value: store.settings['autoSync'] != false,
+                onChanged: (v) {
+                  store.settings['autoSync'] = v;
+                  store.persist();
+                },
+              ),
+            ),
+            SettingRow('最近检查', detail: prettyStamp(store.notices['lastCheck'])),
+          ]),
         if (widget.section == '外观')
           _group('外观', [
             SettingRow(
@@ -314,8 +433,10 @@ class _SettingsPageState extends State<SettingsPage> {
               },
             ),
             SettingRow(
-              '轻毛玻璃',
-              detail: '仅用于浮动控件；关闭可进一步减少绘制开销',
+              '毛玻璃效果',
+              detail: store.settings['glass'] != false
+                  ? '导航栏与浮动按钮为磨砂玻璃；关闭后不再实时模糊'
+                  : '已关闭：导航栏改为不透明，降低功耗与绘制开销',
               trailing: CupertinoSwitch(
                 value: store.settings['glass'] != false,
                 onChanged: (v) {
@@ -324,7 +445,39 @@ class _SettingsPageState extends State<SettingsPage> {
                 },
               ),
             ),
-            const GlassCard(child: Text('Aa  青鸾考勤 · 外观预览')),
+            const Text(
+              '关闭毛玻璃后，底部导航栏与页面顶部的圆形按钮都会变为不透明纯色，'
+              '系统开启“减弱动态效果”或无障碍导航时也会自动降级。',
+              style: TextStyle(fontSize: 12),
+            ),
+            GlassCard(
+              navigation: true,
+              radius: 18,
+              child: Row(
+                children: [
+                  Text(
+                    'Aa',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: CupertinoColors.label.resolveFrom(context),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '青鸾考勤 · 外观预览',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: CupertinoColors.secondaryLabel.resolveFrom(
+                          context,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ]),
         if (widget.section == '数据导出')
           _group('数据导出', [
@@ -388,32 +541,82 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  void openSection(String section) => Navigator.of(context).push(
-    CupertinoPageRoute<void>(
+  /// Preview of the notices queued for upload.
+  Future<void> drafts() async {
+    final outbox = store.noticeOutbox;
+    if (outbox.isEmpty) {
+      await message(context, '没有待上传通知', '在首页「管理员通知」中发布后会进入这里，等待签名上传。');
+      return;
+    }
+    await showAppSheet<void>(
+      context,
+      (sheetContext) => SheetPanel(
+        title: '待上传通知',
+        subtitle: '${outbox.length} 条 · 签名上传接入后自动写入 note.md 与 index.json',
+        titleIcon: CupertinoIcons.cloud_upload,
+        child: Column(
+          children: [
+            for (final draft in outbox.reversed)
+              SettingRow(
+                (draft['title']?.toString().isEmpty ?? true)
+                    ? '未命名通知'
+                    : draft['title'].toString(),
+                detail: '${draft['createdAt'] ?? ''}'.replaceFirst('T', ' '),
+                onTap: () => showNoticePanel(
+                  sheetContext,
+                  store,
+                  channel: 'admin',
+                  title: draft['title']?.toString() ?? '',
+                  body: draft['markdown']?.toString() ?? '',
+                  note: '待上传',
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void openSection(String section) => Navigator.of(context).push(    CupertinoPageRoute<void>(
       builder: (_) => SettingsPage(store: store, section: section),
     ),
   );
-  Widget _group(String title, List<Widget> children) => Padding(
-    padding: const EdgeInsets.only(bottom: 24),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 8),
-          child: Text(
-            title,
-            style: TextStyle(
-              color: CupertinoColors.secondaryLabel.resolveFrom(context),
-              fontSize: 13,
+  /// Grouped card with an iOS-style header label and inset dividers.
+  Widget _group(String title, List<Widget> children, {double? inset}) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: Gap.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            GroupLabel(title),
+            SettingsGroup(
+              dividerInset: inset ?? Gap.md,
+              children: children,
             ),
-          ),
+          ],
         ),
-        GlassCard(child: Column(children: children)),
-      ],
+      );
+
+  /// Row with a tinted leading glyph, matching Apple's grouped settings lists.
+  Widget _row(
+    BuildContext context,
+    String title, {
+    String detail = '',
+    required IconData icon,
+    required Color tint,
+    VoidCallback? onTap,
+    Widget? trailing,
+  }) => SettingRow(
+    title,
+    detail: detail,
+    leading: IconBadge(
+      icon: icon,
+      tint: CupertinoDynamicColor.resolve(tint, context),
     ),
+    onTap: onTap,
+    trailing: trailing,
   );
 }
-
 class PeoplePage extends StatelessWidget {
   const PeoplePage({super.key, required this.store});
   final Workspace store;
@@ -496,7 +699,7 @@ class PeoplePage extends StatelessWidget {
                 ),
               ),
               ...preview.names.map((s) => SettingRow(s)),
-              CupertinoButton.filled(
+              PrimaryButton(
                 onPressed: preview.names.isEmpty
                     ? null
                     : () => Navigator.pop(c, true),
@@ -534,54 +737,74 @@ class PeoplePage extends StatelessWidget {
       child: Screen(
         title: '人员管理',
         children: [
-          Wrap(
+          Row(
             children: [
-              CupertinoButton.filled(
-                onPressed: () => add(context),
-                child: const Text('新增人员'),
+              Expanded(
+                child: PrimaryButton(
+                  onPressed: () => add(context),
+                  child: const Text('新增人员'),
+                ),
               ),
+              const SizedBox(width: Gap.xs),
               CupertinoButton(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Gap.md,
+                  vertical: Gap.sm,
+                ),
+                color: AppColors.raised.resolveFrom(context),
+                borderRadius: BorderRadius.circular(Radii.control),
                 onPressed: () => import(context),
-                child: const Text('导入 Excel / CSV'),
-              ),
-              CupertinoButton(
-                onPressed: () => Navigator.of(context).push(
-                  CupertinoPageRoute<void>(
-                    builder: (_) => PeopleBatchPage(store: store),
+                child: Text(
+                  '导入',
+                  style: AppType.button.copyWith(
+                    color: CupertinoColors.label.resolveFrom(context),
                   ),
                 ),
-                child: const Text('批量编辑'),
               ),
             ],
           ),
-          const Text('文件首行需包含“姓名”列。支持 .xlsx 和 UTF-8 CSV。'),
-          const Text('支持带表头或无表头模板：第一列姓名（可选）、第二列性别（可选）、第三列工号（可选）。重名行会在导入预览中提示。'),
+          const SizedBox(height: Gap.xxs),
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+            onPressed: () => Navigator.of(context).push(
+              CupertinoPageRoute<void>(
+                builder: (_) => PeopleBatchPage(store: store),
+              ),
+            ),
+            child: Text(
+              '批量编辑',
+              style: AppType.footnoteStyle.copyWith(
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+              ),
+            ),
+          ),
+          const SizedBox(height: Gap.md),
           if (store.visiblePeople.isEmpty)
             const EmptyState(
               icon: CupertinoIcons.person_2,
               title: '还没有人员',
-              message: '手动新增或从表格导入开始。',
+              message: '手动新增，或从 Excel / CSV 导入名单。'
+                  '文件首行需包含“姓名”列，可选性别与工号列。',
             ),
           ...store.visiblePeople.map(
-            (p) => GlassCard(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SettingRow(
-                      p.name,
-                      detail: p.active ? '启用中' : '已停用（历史保留）',
-                      onTap: () => add(context, person: p),
-                    ),
-                  ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
+            (p) => Padding(
+              padding: const EdgeInsets.only(bottom: Gap.xs),
+              child: GlassCard(
+                padding: EdgeInsets.zero,
+                child: SettingRow(
+                  p.name,
+                  detail: p.active ? '启用中' : '已停用（历史保留）',
+                  onTap: () => options(context, p),
+                  trailing: CupertinoButton(
+                    padding: const EdgeInsets.all(Gap.xs),
                     onPressed: () => options(context, p),
                     child: Icon(
                       CupertinoIcons.ellipsis,
+                      size: Sizes.icon,
                       semanticLabel: '${p.name}的选项',
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -640,7 +863,7 @@ class _PeopleBatchPageState extends State<PeopleBatchPage> {
               ),
             ),
             Expanded(
-              child: CupertinoButton.filled(
+              child: PrimaryButton(
                 onPressed: edit,
                 child: const Text('编辑'),
               ),

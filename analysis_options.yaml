@@ -23,6 +23,9 @@ linter:
   rules:
     # avoid_print: false  # Uncomment to disable the `avoid_print` rule
     # prefer_single_quotes: true  # Uncomment to enable the `prefer_single_quotes` rule
+    # The shared bottom panel takes its body as `child` and keeps a pinned
+    # `footer` after it, which reads better than reordering the arguments.
+    sort_child_properties_last: false
 
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options

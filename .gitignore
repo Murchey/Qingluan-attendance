@@ -5,6 +5,15 @@
 .packages
 build/
 dist/
+artifacts/
+evidence/
+coverage/
+tmp/
+temp/
+
+# Local packaging and verification helpers
+test/
+*_test.dart
 # If you're building an application, you may want to check-in your pubspec.lock
 .idea/
 *.iml
@@ -27,3 +36,9 @@ doc/api/
 
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# Local editor and OS metadata
+.vscode/
+*.log
+.DS_Store
+Thumbs.db

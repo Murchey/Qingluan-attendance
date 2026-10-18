@@ -2,7 +2,7 @@
   "schema": 1,
   "generatedAt": "2026-10-18T00:00:00+08:00",
   "data": {
-    "hash": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "hash": "fd5fd23175ae1118529817b688ce00f5aa84ce1f51eb4fe92381e9c955bc1f59",
     "updatedAt": "2026-10-18T00:00:00+08:00",
     "files": {
       "data/people.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
@@ -18,7 +18,7 @@
   "devNote": {
     "version": "1.0.0",
     "path": "dev-note.md",
-    "hash": "e5ce84290a046a62b4b0ae853a055388d26059daeaf2502f5ab0360a3915db77",
+    "hash": "5e2b3e84848e44b117f9c5559d0a0f5cafcc128e7ab367cd2eca76609cd37239",
     "title": "青鸾考勤 1.0.0",
     "updatedAt": "2026-10-18 00:00"
   }

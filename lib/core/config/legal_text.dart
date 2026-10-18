@@ -36,7 +36,7 @@ const String kPrivacyPolicy = '''
 
 **4. 网络请求产生的最小信息**
 
-- 访问你配置的存储桶：上行只有业务数据，下行只有 `index.json` / `note.md` / `dev-note.md` / 工作区快照；
+- 访问你配置的存储桶：上行只有业务数据分片和通知，下行只有 `index.json`、分片数据与通知正文；
 - 检查应用更新：访问 Gitee / GitHub 的 Release 页面（或你选择的镜像地址），会带上你的 IP 与 User-Agent；
 - 上述请求都由你的设备直接发出，不经过青鸾的中间服务器。
 
@@ -58,7 +58,7 @@ const String kPrivacyPolicy = '''
 ## 四、数据保存与删除
 
 - 业务数据保存在应用私有目录，卸载应用或在系统设置中「清除数据」即被删除；
-- 若你开启了云同步，桶内会存在 `data/workspace.json`、`index.json`、`note.md` 等对象，这些对象在你自己的存储桶里，删除权也在你手上（控制台删除即可）；
+- 若你开启了云同步，桶内会存在 `data/people.json`、`data/records/`、`data/leaves/`、`index.json`、`note.md` 等对象，这些对象在你自己的存储桶里，删除权也在你手上（控制台删除即可）；
 - 关闭「保存后自动上传」后，后续修改不再上传，但已上传的对象不会自动删除。
 
 ## 五、未成年人

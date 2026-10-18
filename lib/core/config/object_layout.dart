@@ -17,9 +17,6 @@ abstract final class ObjectLayout {
   static const index = 'index.json';
   static const adminNote = 'note.md';
   static const devNote = 'dev-note.md';
-  /// Whole-workspace snapshot used by the current write-through uploader.
-  static const snapshot = 'data/workspace.json';
-
   static const people = 'data/people.json';
   static const recordsRoot = 'data/records';
   static const leavesRoot = 'data/leaves';

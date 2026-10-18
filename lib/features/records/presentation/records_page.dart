@@ -7,6 +7,7 @@ import '../../../core/widgets/ui.dart';
 import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../attendance/presentation/entry_editor.dart';
+import '../../sync/presentation/sync_page.dart';
 
 class RecordsPage extends StatefulWidget {
   const RecordsPage({super.key, required this.store});
@@ -17,6 +18,7 @@ class RecordsPage extends StatefulWidget {
 
 class _RecordsPageState extends State<RecordsPage> {
   String query = '', person = '', status = '', author = '';
+  String datePreset = '全部';
   String? syncNote;
 
   /// Pull-to-refresh: push pending edits, then pull the cloud copy when the
@@ -31,6 +33,7 @@ class _RecordsPageState extends State<RecordsPage> {
     if (!mounted) return;
     setState(() => syncNote = outcome.message);
   }
+
   DateTime? from, to;
   List<Entry> get filtered =>
       widget.store.liveEntries
@@ -60,6 +63,29 @@ class _RecordsPageState extends State<RecordsPage> {
     setState(() {
       from = DateTime.parse(picked.$1);
       to = DateTime.parse(picked.$2);
+      datePreset = '自定义';
+    });
+  }
+
+  void setDatePreset(String value) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    DateTime? start;
+    DateTime? end;
+    if (value == '今日') {
+      start = today;
+      end = today;
+    } else if (value == '本周') {
+      start = today.subtract(Duration(days: today.weekday - 1));
+      end = start.add(const Duration(days: 6));
+    } else if (value == '本月') {
+      start = DateTime(today.year, today.month);
+      end = DateTime(today.year, today.month + 1, 0);
+    }
+    setState(() {
+      datePreset = value;
+      from = start;
+      to = end;
     });
   }
 
@@ -73,9 +99,7 @@ class _RecordsPageState extends State<RecordsPage> {
           children: [
             SettingRow(
               '日期范围',
-              detail: from == null
-                  ? '不限'
-                  : '${dayKey(from!)} — ${dayKey(to!)}',
+              detail: from == null ? '不限' : '${dayKey(from!)} — ${dayKey(to!)}',
               onTap: () {
                 Navigator.of(sheetContext).pop();
                 range();
@@ -128,6 +152,7 @@ class _RecordsPageState extends State<RecordsPage> {
                 setState(() {
                   from = null;
                   to = null;
+                  datePreset = '全部';
                   person = '';
                   status = '';
                   author = '';
@@ -240,6 +265,36 @@ class _RecordsPageState extends State<RecordsPage> {
     ),
   );
 
+  Future<void> editField(Entry entry, String field) async {
+    String? value;
+    if (field == 'status') {
+      value = await choose<String>(
+        context,
+        '修改状态',
+        {for (final s in statuses) s: s},
+        selected: {entry.fields['status'] ?? ''},
+      );
+    } else if (field == 'in' || field == 'out') {
+      value = await showTimePickSheet(
+        context,
+        title: field == 'in' ? '修改签到' : '修改签退',
+        initial: entry.fields[field] ?? '',
+        presets: const ['08:30', '09:00', '12:00', '18:00', '现在'],
+      );
+    } else {
+      value = await input(context, '修改备注', value: entry.fields['note'] ?? '');
+    }
+    if (value == null || !mounted) return;
+    await guarded(
+      context,
+      () => widget.store.saveEntries(
+        [entry.personId],
+        entry.day,
+        {...entry.fields, field: value!},
+      ),
+    );
+  }
+
   Widget _detailBody(BuildContext c, Entry e) => CupertinoPageScaffold(
     child: Screen(
       title: widget.store.name(e.personId),
@@ -311,11 +366,7 @@ class _RecordsPageState extends State<RecordsPage> {
               padding: const EdgeInsets.symmetric(vertical: Gap.sm),
               pressedOpacity: .5,
               onPressed: () => guarded(c, () async {
-                if (await confirm(
-                  c,
-                  '删除这条记录？',
-                  '会保留删除标记和审计历史，并在后续同步。',
-                )) {
+                if (await confirm(c, '删除这条记录？', '会保留删除标记和审计历史，并在后续同步。')) {
                   await widget.store.deleteEntry(e);
                   if (c.mounted) Navigator.pop(c);
                 }
@@ -338,7 +389,8 @@ class _RecordsPageState extends State<RecordsPage> {
         ),
       ],
     ),
-  );  @override
+  );
+  @override
   Widget build(BuildContext context) {
     final rows = filtered;
     final groups = <String, List<Entry>>{};
@@ -376,6 +428,29 @@ class _RecordsPageState extends State<RecordsPage> {
             ),
           ],
         ),
+        CollaborationStatusBar(
+          store: widget.store,
+          onTap: () => Navigator.of(context).push(
+            CupertinoPageRoute<void>(
+              builder: (_) => SyncPage(
+                store: widget.store,
+                onSettings: () => Navigator.of(context).pop(),
+              ),
+            ),
+          ),
+        ),
+        SegmentedControl<String>(
+          values: const ['今日', '本周', '本月', '全部'],
+          labels: const ['今日', '本周', '本月', '全部'],
+          value: datePreset == '自定义' ? '全部' : datePreset,
+          onChanged: setDatePreset,
+        ),
+        if (datePreset == '自定义')
+          CupertinoButton(
+            padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+            onPressed: range,
+            child: Text('${dayKey(from!)} — ${dayKey(to!)}'),
+          ),
         const SizedBox(height: Gap.sm),
         Row(
           children: [
@@ -393,6 +468,7 @@ class _RecordsPageState extends State<RecordsPage> {
                 onPressed: () => setState(() {
                   from = null;
                   to = null;
+                  datePreset = '全部';
                   person = '';
                   status = '';
                   author = '';
@@ -418,10 +494,7 @@ class _RecordsPageState extends State<RecordsPage> {
             padding: const EdgeInsets.only(top: Gap.lg, bottom: Gap.xs),
             child: Row(
               children: [
-                Text(
-                  day,
-                  style: AppType.groupLabel.copyWith(color: secondary),
-                ),
+                Text(day, style: AppType.groupLabel.copyWith(color: secondary)),
                 const SizedBox(width: Gap.xs),
                 Text(
                   '${groups[day]!.length} 人',
@@ -432,11 +505,13 @@ class _RecordsPageState extends State<RecordsPage> {
               ],
             ),
           ),
+          _RecordHeader(),
           ...groups[day]!.map(
-            (e) => EntryTile(
+            (e) => _RecordTableRow(
               store: widget.store,
               entry: e,
-              onTap: () => detail(e),
+              onOpen: () => detail(e),
+              onEdit: (field) => editField(e, field),
             ),
           ),
         ],
@@ -444,6 +519,98 @@ class _RecordsPageState extends State<RecordsPage> {
     );
   }
 }
+
+class _RecordHeader extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(Gap.sm, Gap.xs, Gap.sm, Gap.xxs),
+    child: Row(
+      children: const [
+        SizedBox(width: 108, child: Text('人员')),
+        SizedBox(width: 64, child: Text('签到')),
+        SizedBox(width: 64, child: Text('签退')),
+        SizedBox(width: 72, child: Text('状态')),
+        Expanded(child: Text('修改人')),
+      ],
+    ),
+  );
+}
+
+class _RecordTableRow extends StatelessWidget {
+  const _RecordTableRow({
+    required this.store,
+    required this.entry,
+    required this.onOpen,
+    required this.onEdit,
+  });
+  final Workspace store;
+  final Entry entry;
+  final VoidCallback onOpen;
+  final ValueChanged<String> onEdit;
+
+  Widget cell(BuildContext context, String field, String text, double width) =>
+      SizedBox(
+        width: width,
+        child: CupertinoButton(
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+          alignment: Alignment.centerLeft,
+          onPressed: () => onEdit(field),
+          child: Text(
+            text.isEmpty ? '—' : text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.caption.copyWith(
+              color: CupertinoColors.label.resolveFrom(context),
+            ),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: Gap.xxs),
+    child: GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 108,
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+              alignment: Alignment.centerLeft,
+              onPressed: onOpen,
+              child: Text(
+                store.name(entry.personId),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.rowTitle,
+              ),
+            ),
+          ),
+          cell(context, 'in', entry.fields['in'] ?? '', 64),
+          cell(context, 'out', entry.fields['out'] ?? '', 64),
+          cell(context, 'status', entry.fields['status'] ?? '', 72),
+          Expanded(
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
+              alignment: Alignment.centerLeft,
+              onPressed: onOpen,
+              child: Text(
+                '${entry.author}\n${prettyHistory(entry.updatedAt)}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppType.caption.copyWith(
+                  color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// `2026-10-18T03:25:52.167Z · 管理员 · 保存登记` → readable local time.
 String prettyHistory(String line) {
   final match = RegExp(

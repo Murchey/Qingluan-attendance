@@ -48,6 +48,10 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   crypto: ^3.0.7
+  mobile_scanner: ^7.4.2
+  image_picker: ^1.2.4
+  qr_flutter: ^4.1.0
+  gal: ^2.3.3
 
 dev_dependencies:
   integration_test:

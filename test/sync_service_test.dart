@@ -53,18 +53,19 @@ void main() {
     await settle(60);
     expect(storage.puts, isEmpty);
 
-    // A burst of two saves collapses into a single snapshot + manifest pair.
+    // A burst of two saves collapses into one people shard + manifest pair.
     await store.savePerson('林晓');
     await store.savePerson('周宁');
     await settle();
-    expect(storage.puts.where((k) => k == 'data/workspace.json'), hasLength(1));
+    expect(storage.puts.where((k) => k == 'data/people.json'), hasLength(1));
+    expect(storage.puts, isNot(contains('data/workspace.json')));
     expect(storage.puts, contains('index.json'));
     expect(store.pendingDays, isEmpty);
     expect(sync.phase, SyncPhase.synced);
-    // The manifest carries the snapshot hash and the data file list.
+    // The manifest carries the canonical data hash and the shard file list.
     final manifest = String.fromCharCodes(storage.objects['index.json']!);
     expect(manifest, contains('"data"'));
-    expect(manifest, contains('data/workspace.json'));
+    expect(manifest, contains('data/people.json'));
     expect(store.lastSync, isNotNull);
   });
 
@@ -95,6 +96,40 @@ void main() {
     expect(ok, isTrue);
     expect(store.pendingDays, isEmpty);
     expect(sync.phase, SyncPhase.synced);
+  });
+
+  test('uploads attendance by day and leave data by month', () async {
+    final store = Workspace.memory()..identity = 'Admin';
+    final storage = FakeStorage();
+    final sync = SyncService(
+      store,
+      storageFactory: () async => storage,
+      debounce: const Duration(milliseconds: 20),
+    );
+    sync.attach();
+    addTearDown(sync.dispose);
+
+    await store.savePerson('林晓');
+    final personId = store.people.single.id;
+    await store.saveEntries(
+      [personId],
+      '2026-10-18',
+      {'in': '09:00', 'out': '18:00', 'status': '正常', 'note': ''},
+    );
+    await store.saveLeave(
+      personId: personId,
+      startDay: '2026-10-31',
+      endDay: '2026-11-01',
+      type: '事假',
+      status: '已确认',
+    );
+    await settle();
+
+    expect(storage.puts, contains('data/people.json'));
+    expect(storage.puts, contains('data/records/2026-10-18.json'));
+    expect(storage.puts, contains('data/leaves/2026-10.json'));
+    expect(storage.puts, contains('data/leaves/2026-11.json'));
+    expect(storage.puts, isNot(contains('data/workspace.json')));
   });
 
   test('uploads a published admin notice before the manifest', () async {
@@ -146,25 +181,28 @@ void main() {
     store.settings['autoUpload'] = true;
     final ok = await sync.upload(manual: true);
     expect(ok, isTrue);
-    expect(storage.puts, contains('data/workspace.json'));
+    expect(storage.puts, contains('data/people.json'));
   });
 
-  test('unconfigured storage reports a quiet state instead of failing', () async {
-    final store = Workspace.memory();
-    final sync = SyncService(
-      store,
-      storageFactory: () async => null,
-      debounce: const Duration(milliseconds: 20),
-    );
-    sync.attach();
-    addTearDown(sync.dispose);
+  test(
+    'unconfigured storage reports a quiet state instead of failing',
+    () async {
+      final store = Workspace.memory();
+      final sync = SyncService(
+        store,
+        storageFactory: () async => null,
+        debounce: const Duration(milliseconds: 20),
+      );
+      sync.attach();
+      addTearDown(sync.dispose);
 
-    await store.savePerson('李航');
-    await settle();
-    expect(sync.phase, SyncPhase.unconfigured);
-    expect(store.pendingDays, isNotEmpty);
-    expect(sync.label, contains('本机'));
-  });
+      await store.savePerson('李航');
+      await settle();
+      expect(sync.phase, SyncPhase.unconfigured);
+      expect(store.pendingDays, isNotEmpty);
+      expect(sync.label, contains('本机'));
+    },
+  );
 
   test('pull-to-refresh reports up to date when hashes match', () async {
     final store = Workspace.memory();
@@ -185,8 +223,7 @@ void main() {
     expect(outcome.message, contains('已是最新'));
   });
 
-  test('pull-to-refresh downloads the cloud snapshot when local is clean',
-      () async {
+  test('pull-to-refresh downloads cloud shards when local is clean', () async {
     final store = Workspace.memory();
     final storage = FakeStorage();
     final sync = SyncService(
@@ -200,24 +237,34 @@ void main() {
     await store.savePerson('林晓');
     await settle();
 
-    // Simulate another device publishing a bigger workspace.
-    final payload =
-        jsonDecode(String.fromCharCodes(storage.objects['data/workspace.json']!))
+    // Simulate another device publishing a bigger people shard.
+    final peopleShard =
+        jsonDecode(String.fromCharCodes(storage.objects['data/people.json']!))
             as Map<String, dynamic>;
-    (payload['people'] as List).add({
+    (peopleShard['people'] as List).add({
       'id': 'remote-1',
       'name': '周宁',
       'gender': '男',
       'employeeId': 'EMP-9001',
       'active': true,
     });
-    final bytes = utf8.encode(jsonEncode(payload));
-    storage.objects['data/workspace.json'] = bytes;
-    final hash = sha256.convert(bytes).toString();
+    final bytes = utf8.encode(jsonEncode(peopleShard));
+    storage.objects['data/people.json'] = bytes;
+    final payload = {
+      'schema': 1,
+      'people': peopleShard['people'],
+      'entries': const [],
+      'leaves': const [],
+    };
+    final hash = sha256.convert(utf8.encode(jsonEncode(payload))).toString();
     storage.objects['index.json'] = utf8.encode(
       jsonEncode({
         'schema': 1,
-        'data': {'hash': hash, 'updatedAt': '2026-10-18T02:00:00Z'},
+        'data': {
+          'hash': hash,
+          'updatedAt': '2026-10-18T02:00:00Z',
+          'files': {'data/people.json': sha256.convert(bytes).toString()},
+        },
       }),
     );
 

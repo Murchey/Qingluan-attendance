@@ -21,11 +21,19 @@ import '../../notice/presentation/notice_panel.dart';
 import '../../stats/domain/attendance_score.dart';
 import '../../stats/presentation/score_rules_page.dart';
 import '../../update/presentation/update_settings.dart';
+import '../../sync/presentation/sync_page.dart';
+import 'cloud_qr_page.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, required this.store, this.section});
+  const SettingsPage({
+    super.key,
+    required this.store,
+    this.section,
+    this.onSync,
+  });
   final Workspace store;
   final String? section;
+  final VoidCallback? onSync;
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
@@ -80,6 +88,34 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     await guarded(context, () => store.setIdentity(value));
+  }
+
+  Future<void> switchIdentity() async {
+    final names = <String>{
+      if (store.identity.trim().isNotEmpty) store.identity.trim(),
+      ...store.liveEntries
+          .map((e) => e.author.trim())
+          .where((s) => s.isNotEmpty),
+      ...store.liveLeaves
+          .map((l) => l.author.trim())
+          .where((s) => s.isNotEmpty),
+    }.toList()..sort();
+    if (names.isEmpty) return identity();
+    final options = <String, String>{
+      for (final name in names) name: name,
+      '__new__': '输入新的操作人…',
+    };
+    final picked = await choose<String>(
+      context,
+      '切换当前操作人',
+      options,
+      selected: {store.identity},
+    );
+    if (picked == '__new__') {
+      await identity();
+    } else if (picked != null) {
+      await store.setIdentity(picked);
+    }
   }
 
   Future<void> people() async => Navigator.of(
@@ -173,9 +209,11 @@ class _SettingsPageState extends State<SettingsPage> {
             _row(
               context,
               '本地身份',
-              detail: store.identity.isEmpty ? '设置登记时使用的显示名' : store.identity,
+              detail: store.identity.isEmpty
+                  ? '设置登记时使用的显示名'
+                  : '当前操作人：${store.identity}',
               icon: CupertinoIcons.person_crop_circle,
-              onTap: () => openSection('本地身份'),
+              onTap: switchIdentity,
             ),
             _row(
               context,
@@ -213,6 +251,22 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ]),
           _group('偏好与服务', inset: 58, [
+            _row(
+              context,
+              '同步中心',
+              detail: store.sync == null ? '未配置，数据仍保存在本机' : store.sync!.label,
+              icon: CupertinoIcons.cloud,
+              onTap:
+                  widget.onSync ??
+                  () => Navigator.of(context).push(
+                    CupertinoPageRoute<void>(
+                      builder: (_) => SyncPage(
+                        store: store,
+                        onSettings: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                  ),
+            ),
             _row(
               context,
               '外观',
@@ -318,22 +372,18 @@ class _SettingsPageState extends State<SettingsPage> {
                   ? '不宽限'
                   : '${store.shift.graceMinutes} 分钟',
               onTap: () async {
-                final value = await choose<int>(
-                  context,
-                  '迟到宽限',
-                  const {0: '不宽限', 5: '5 分钟', 10: '10 分钟', 15: '15 分钟', 30: '30 分钟'},
-                  subtitle: '超过上班时间加宽限即判定迟到',
-                );
+                final value = await choose<int>(context, '迟到宽限', const {
+                  0: '不宽限',
+                  5: '5 分钟',
+                  10: '10 分钟',
+                  15: '15 分钟',
+                  30: '30 分钟',
+                }, subtitle: '超过上班时间加宽限即判定迟到');
                 if (value == null) return;
-                await store.setShift(
-                  store.shift.copyWith(graceMinutes: value),
-                );
+                await store.setShift(store.shift.copyWith(graceMinutes: value));
               },
             ),
-            const SettingRow(
-              '状态推导',
-              detail: '签到晚于上班时间即迟到，签退早于下班时间即早退',
-            ),
+            const SettingRow('状态推导', detail: '签到晚于上班时间即迟到，签退早于下班时间即早退'),
           ]),
         if (widget.section == '本地身份')
           _group('本地身份', [
@@ -419,6 +469,11 @@ class _SettingsPageState extends State<SettingsPage> {
               onTap: () => credential('storage_token', 'SecurityToken'),
             ),
             SettingRow('连接测试', detail: '仅检查地址连通性，不验证存储权限', onTap: probe),
+            SettingRow(
+              '二维码配置',
+              detail: '扫码导入或生成云存储配置二维码',
+              onTap: () => showCloudQrPage(context, store),
+            ),
           ]),
         if (widget.section == '时间')
           _group('时间', [

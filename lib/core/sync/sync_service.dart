@@ -54,8 +54,7 @@ class SyncService extends ChangeNotifier {
     SyncPhase.synced => '已自动同步',
     SyncPhase.failed => '上传失败，稍后自动重试',
     SyncPhase.unconfigured => '未配置对象存储，仅保存在本机',
-    SyncPhase.idle =>
-      pendingCount == 0 ? '本地数据已是最新' : '$pendingCount 项变更待上传',
+    SyncPhase.idle => pendingCount == 0 ? '本地数据已是最新' : '$pendingCount 项变更待上传',
   };
 
   void attach() {
@@ -83,7 +82,7 @@ class SyncService extends ChangeNotifier {
     });
   }
 
-  /// Uploads the workspace snapshot and the manifest. Safe to call manually.
+  /// Uploads the sharded workspace files and the manifest. Safe to call manually.
   Future<bool> upload({bool manual = false}) async {
     if (_busy) return false;
     if (pendingCount == 0 && !manual) return true;
@@ -98,23 +97,22 @@ class SyncService extends ChangeNotifier {
       }
 
       final now = DateTime.now().toUtc().toIso8601String();
-      // The pending queue is per-device bookkeeping, not business data: keeping
-      // it out of the snapshot stops the hash from drifting after every upload.
-      final snapshot = utf8.encode(
-        jsonEncode(_cloudPayload(store)),
-      );
-      final snapshotHash = sha256.convert(snapshot).toString();
-      uploadedBytes = snapshot.length;
-
-      final put = await storage.put(
-        ObjectLayout.snapshot,
-        snapshot,
-        sha256: snapshotHash,
-      );
-      if (put is Failure) {
-        _emit(SyncPhase.failed, '上传工作区失败：${put.message}');
-        return false;
+      final files = _shardedFiles(store, now: now);
+      final fileHashes = <String, String>{};
+      uploadedBytes = 0;
+      for (final entry in files.entries) {
+        final hash = sha256.convert(entry.value).toString();
+        fileHashes[entry.key] = hash;
+        uploadedBytes += entry.value.length;
+        final put = await storage.put(entry.key, entry.value, sha256: hash);
+        if (put is Failure) {
+          _emit(SyncPhase.failed, '上传 ${entry.key} 失败：${put.message}');
+          return false;
+        }
       }
+      final snapshotHash = sha256
+          .convert(utf8.encode(jsonEncode(_cloudPayload(store))))
+          .toString();
 
       // Publish the admin notice body first so the manifest never points at a
       // stale note.
@@ -137,18 +135,12 @@ class SyncService extends ChangeNotifier {
 
       // Only advertise note.md when this upload actually wrote it, otherwise
       // other devices would fetch a missing object.
-      final NoticeRefJson? admin = drafts.isEmpty
-          ? null
-          : _noticeRef('admin');
+      final NoticeRefJson? admin = drafts.isEmpty ? null : _noticeRef('admin');
       final NoticeRefJson? dev = _noticeRef('dev');
       final manifest = <String, dynamic>{
         'schema': 1,
         'generatedAt': now,
-        'data': {
-          'hash': snapshotHash,
-          'updatedAt': now,
-          'files': {ObjectLayout.snapshot: snapshotHash},
-        },
+        'data': {'hash': snapshotHash, 'updatedAt': now, 'files': fileHashes},
         if (admin != null) 'adminNote': admin.toJson(),
         if (dev != null) 'devNote': dev.toJson(),
       };
@@ -188,7 +180,7 @@ class SyncService extends ChangeNotifier {
   }
 
   /// Pull-to-refresh entry point: push pending edits, then compare the remote
-  /// manifest with the local snapshot and pull the cloud copy when the local
+  /// manifest with the local shard hashes and pull the changed cloud files when the local
   /// side has nothing unsaved.
   Future<SyncOutcome> refresh() async {
     if (_busy) return const SyncOutcome(false, '正在同步，请稍候');
@@ -203,9 +195,8 @@ class SyncService extends ChangeNotifier {
       if (manifestResult case Failure(:final message)) {
         return SyncOutcome(false, '读取清单失败：$message');
       }
-      final manifestBytes = (manifestResult as Success<RemoteObject?>)
-          .value
-          ?.bytes;
+      final manifestBytes =
+          (manifestResult as Success<RemoteObject?>).value?.bytes;
       if (manifestBytes == null || manifestBytes.isEmpty) {
         _emit(SyncPhase.synced, '云端暂无数据');
         return const SyncOutcome(true, '云端暂无数据，本地版本已就绪');
@@ -217,41 +208,45 @@ class SyncService extends ChangeNotifier {
                 : '')
           : '';
       final localHash = sha256
-          .convert(
-            utf8.encode(jsonEncode(_cloudPayload(store))),
-          )
+          .convert(utf8.encode(jsonEncode(_cloudPayload(store))))
           .toString();
       final now = DateTime.now().toUtc().toIso8601String();
-      if (remoteHash.isEmpty || remoteHash == localHash) {
+      if (remoteHash == localHash) {
         store.lastSync = now;
         store.syncMessage = '已是最新';
         _emit(SyncPhase.synced, '已是最新');
         return const SyncOutcome(true, '已是最新');
       }
-      final snapshot = await storage.get(ObjectLayout.snapshot);
-      if (snapshot case Failure(:final message)) {
-        return SyncOutcome(false, '下载云端数据失败：$message');
+      final data = manifest is Map && manifest['data'] is Map
+          ? Map<String, dynamic>.from(manifest['data'] as Map)
+          : <String, dynamic>{};
+      final fileMap = data['files'] is Map
+          ? Map<String, dynamic>.from(data['files'] as Map)
+          : <String, dynamic>{};
+      if (fileMap.isEmpty) {
+        return const SyncOutcome(false, '云端清单没有数据分片');
       }
-      final bytes = (snapshot as Success<RemoteObject?>).value?.bytes;
-      if (bytes == null) return const SyncOutcome(false, '云端数据为空');
-      final payload = jsonDecode(utf8.decode(bytes));
-      if (payload is! Map<String, dynamic>) {
-        return const SyncOutcome(false, '云端数据格式无法识别');
+      final shardBytes = <String, List<int>>{};
+      for (final key in fileMap.keys.map((k) => k.toString())) {
+        final result = await storage.get(key);
+        if (result case Failure(:final message)) {
+          return SyncOutcome(false, '下载 $key 失败：$message');
+        }
+        final bytes = (result as Success<RemoteObject?>).value?.bytes;
+        if (bytes == null || bytes.isEmpty) {
+          return SyncOutcome(false, '云端分片为空：$key');
+        }
+        shardBytes[key] = bytes;
       }
-      // The stored hash may predate the canonical payload (older builds hashed
-      // local-only fields too). Compare business content before overwriting
-      // anything: identical content just needs the manifest repaired.
+      final payload = _payloadFromShards(shardBytes);
       final remoteCanonical = sha256
           .convert(utf8.encode(jsonEncode(_project(payload))))
           .toString();
       if (remoteCanonical == localHash) {
-        final repaired = await upload(manual: true);
-        if (repaired) {
-          store.lastSync = now;
-          _emit(SyncPhase.synced, '已是最新');
-          return const SyncOutcome(true, '已是最新');
-        }
-        return SyncOutcome(false, message);
+        store.lastSync = now;
+        store.syncMessage = '已是最新';
+        _emit(SyncPhase.synced, '已是最新');
+        return const SyncOutcome(true, '已是最新');
       }
       if (pendingCount > 0) {
         return const SyncOutcome(true, '本地有变更待上传，稍后再刷新');
@@ -279,6 +274,95 @@ class SyncService extends ChangeNotifier {
   /// device overwrite another's preferences.
   static Map<String, dynamic> _cloudPayload(Workspace store) =>
       _project(store.toPayload());
+
+  static Map<String, List<int>> _shardedFiles(
+    Workspace store, {
+    required String now,
+  }) {
+    final people = store.people.map((p) => p.toJson()).toList();
+    final entriesByDay = <String, List<Map<String, dynamic>>>{};
+    for (final entry in store.entries) {
+      entriesByDay.putIfAbsent(entry.day, () => []).add(entry.toJson());
+    }
+    final leavesByMonth = <String, Map<String, Leave>>{};
+    for (final leave in store.leaves) {
+      final start = DateTime.tryParse(leave.startDay);
+      final end = DateTime.tryParse(leave.endDay);
+      if (start == null || end == null) continue;
+      var cursor = DateTime(start.year, start.month);
+      final last = DateTime(end.year, end.month);
+      while (!cursor.isAfter(last)) {
+        final month =
+            '${cursor.year.toString().padLeft(4, '0')}-'
+            '${cursor.month.toString().padLeft(2, '0')}';
+        leavesByMonth.putIfAbsent(month, () => {})[leave.id] = leave;
+        cursor = DateTime(cursor.year, cursor.month + 1);
+      }
+    }
+
+    final result = <String, List<int>>{
+      ObjectLayout.people: utf8.encode(
+        jsonEncode({'schema': 1, 'updatedAt': now, 'people': people}),
+      ),
+    };
+    for (final day in entriesByDay.keys) {
+      result[ObjectLayout.record(day)] = utf8.encode(
+        jsonEncode({
+          'schema': 1,
+          'day': day,
+          'updatedAt': now,
+          'entries': entriesByDay[day],
+        }),
+      );
+    }
+    for (final month in leavesByMonth.keys) {
+      result[ObjectLayout.leaveMonth(month)] = utf8.encode(
+        jsonEncode({
+          'schema': 1,
+          'month': month,
+          'updatedAt': now,
+          'leaves': leavesByMonth[month]!.values
+              .map((l) => l.toJson())
+              .toList(),
+        }),
+      );
+    }
+    return result;
+  }
+
+  static Map<String, dynamic> _payloadFromShards(Map<String, List<int>> files) {
+    final peopleJson = files[ObjectLayout.people];
+    final peoplePayload = peopleJson == null
+        ? const <dynamic>[]
+        : (jsonDecode(utf8.decode(peopleJson)) as Map)['people'] as List? ??
+              const <dynamic>[];
+    final entries = <dynamic>[];
+    final leavesById = <String, dynamic>{};
+    for (final item in files.entries) {
+      if (item.key.startsWith('${ObjectLayout.recordsRoot}/')) {
+        final payload = jsonDecode(utf8.decode(item.value));
+        if (payload is Map && payload['entries'] is List) {
+          entries.addAll(payload['entries'] as List);
+        }
+      } else if (item.key.startsWith('${ObjectLayout.leavesRoot}/')) {
+        final payload = jsonDecode(utf8.decode(item.value));
+        if (payload is Map && payload['leaves'] is List) {
+          for (final leave in payload['leaves'] as List) {
+            if (leave is Map) {
+              final id = leave['id']?.toString() ?? '';
+              if (id.isNotEmpty) leavesById[id] = leave;
+            }
+          }
+        }
+      }
+    }
+    return {
+      'schema': 1,
+      'people': peoplePayload,
+      'entries': entries,
+      'leaves': leavesById.values.toList(),
+    };
+  }
 
   static Map<String, dynamic> _project(Map<String, dynamic> payload) {
     final notices = <String, dynamic>{};

@@ -519,16 +519,23 @@ Future<String?> showTimePickSheet(
                   runSpacing: 8,
                   children: [
                     for (final preset in presets)
-                      GestureDetector(
-                        onTap: () => setSheetState(() {
-                          final p = preset.split(':');
-                          value = DateTime(
-                            2000,
-                            1,
-                            1,
-                            int.parse(p[0]),
-                            int.parse(p[1]),
-                          );
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        pressedOpacity: .55,
+                        onPressed: () => setSheetState(() {
+                          if (preset == '现在') {
+                            final now = DateTime.now();
+                            value = DateTime(2000, 1, 1, now.hour, now.minute);
+                          } else {
+                            final p = preset.split(':');
+                            value = DateTime(
+                              2000,
+                              1,
+                              1,
+                              int.parse(p[0]),
+                              int.parse(p[1]),
+                            );
+                          }
                         }),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -536,9 +543,8 @@ Future<String?> showTimePickSheet(
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: CupertinoColors.tertiarySystemFill.resolveFrom(
-                              context,
-                            ),
+                            color: CupertinoColors.tertiarySystemFill
+                                .resolveFrom(context),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
@@ -579,8 +585,7 @@ Future<String?> showTimePickSheet(
             Expanded(
               child: CupertinoButton(
                 padding: EdgeInsets.zero,
-                onPressed: () =>
-                    Navigator.of(sheetContext).pop(hhmm(value)),
+                onPressed: () => Navigator.of(sheetContext).pop(hhmm(value)),
                 child: const SizedBox(
                   height: 52,
                   child: Center(child: Text('确定')),

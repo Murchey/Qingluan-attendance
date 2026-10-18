@@ -14,6 +14,7 @@ import '../../leave/presentation/leave_page.dart';
 import '../../notice/presentation/notice_composer.dart';
 import '../../notice/presentation/notice_panel.dart';
 import '../../stats/presentation/stats_page.dart';
+import '../../sync/presentation/sync_page.dart';
 
 /// Home becomes the day's roster: one tap books a person at the current time,
 /// three keys cover the common batch cases, and the editor is demoted to a
@@ -130,18 +131,17 @@ class _TodayPageState extends State<TodayPage> {
     if (!mounted) return;
     final before = store.record(person.id, day);
     setState(() {
-      undoSnapshot = {
-        person.id: before == null ? null : Map.of(before.fields),
-      };
+      undoSnapshot = {person.id: before == null ? null : Map.of(before.fields)};
       undoLabel = '${person.name} · $status';
     });
     try {
       // 缺勤 means no attendance happened: drop the times instead of keeping a
       // check-in that contradicts the status.
-      await store.saveEntries([person.id], day, {
-        if (status != '缺勤') ...?before?.fields,
-        'status': status,
-      });
+      await store.saveEntries(
+        [person.id],
+        day,
+        {if (status != '缺勤') ...?before?.fields, 'status': status},
+      );
     } on Object catch (e) {
       if (mounted) await message(context, '未能保存', '$e');
     }
@@ -163,9 +163,7 @@ class _TodayPageState extends State<TodayPage> {
     );
     if (!confirmIt) return;
     setState(() {
-      undoSnapshot = {
-        for (final p in pending) p.id: null,
-      };
+      undoSnapshot = {for (final p in pending) p.id: null};
       undoLabel = '全员正常 · ${pending.length} 人';
     });
     try {
@@ -194,9 +192,7 @@ class _TodayPageState extends State<TodayPage> {
     );
     if (!confirmIt) return;
     setState(() {
-      undoSnapshot = {
-        for (final p in pending) p.id: null,
-      };
+      undoSnapshot = {for (final p in pending) p.id: null};
       undoLabel = '结束今天 · ${pending.length} 人缺勤';
     });
     try {
@@ -237,7 +233,9 @@ class _TodayPageState extends State<TodayPage> {
     final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
     const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
     final registered = people
-        .where((p) => store.record(p.id, day) != null && !leaves.containsKey(p.id))
+        .where(
+          (p) => store.record(p.id, day) != null && !leaves.containsKey(p.id),
+        )
         .length;
     final expected = people.where((p) => !leaves.containsKey(p.id)).length;
 
@@ -256,6 +254,7 @@ class _TodayPageState extends State<TodayPage> {
         ),
       ],
       children: [
+        CollaborationStatusBar(store: store, onTap: widget.onSync),
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
@@ -272,6 +271,17 @@ class _TodayPageState extends State<TodayPage> {
             ],
           ),
         ),
+        if (store.identity.isNotEmpty)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: Gap.sm),
+              child: Text(
+                '当前操作人：${store.identity}',
+                style: AppType.caption.copyWith(color: secondary),
+              ),
+            ),
+          ),
         if (people.isEmpty)
           GlassCard(
             child: Column(
@@ -348,11 +358,7 @@ class _TodayPageState extends State<TodayPage> {
           const SizedBox(height: Gap.md),
           Row(
             children: [
-              _textAction(
-                context,
-                '补录历史',
-                () => backfill(context),
-              ),
+              _textAction(context, '补录历史', () => backfill(context)),
               const SizedBox(width: Gap.sm),
               _textAction(context, '数据统计', () => openStats(context)),
               const SizedBox(width: Gap.sm),
@@ -377,7 +383,9 @@ class _TodayPageState extends State<TodayPage> {
 
     list.sort((a, b) {
       final byRank = rank(a).compareTo(rank(b));
-      return byRank != 0 ? byRank : people.indexOf(a).compareTo(people.indexOf(b));
+      return byRank != 0
+          ? byRank
+          : people.indexOf(a).compareTo(people.indexOf(b));
     });
     return list;
   }
@@ -393,9 +401,7 @@ class _TodayPageState extends State<TodayPage> {
     child: Container(
       height: 52,
       decoration: BoxDecoration(
-        color: primary
-            ? AppColors.navy
-            : AppColors.raised.resolveFrom(context),
+        color: primary ? AppColors.navy : AppColors.raised.resolveFrom(context),
         borderRadius: BorderRadius.circular(Radii.control),
       ),
       child: Row(
@@ -620,6 +626,7 @@ class _RosterRow extends StatelessWidget {
         : '点一下可修改';
     return id.isEmpty ? hint : '$id · $hint';
   }
+
   Widget _swipeHint(BuildContext context, String label, Alignment align) =>
       Container(
         margin: const EdgeInsets.only(bottom: Gap.xxs),
@@ -668,7 +675,10 @@ class _RosterRow extends StatelessWidget {
     ),
     child: Text(
       text,
-      style: AppType.caption.copyWith(color: color, fontWeight: FontWeight.w600),
+      style: AppType.caption.copyWith(
+        color: color,
+        fontWeight: FontWeight.w600,
+      ),
     ),
   );
 }

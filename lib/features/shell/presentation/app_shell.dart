@@ -105,17 +105,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   final controller = PageController();
-  final labels = const ['首页', '记录', '同步', '设置'];
+  final labels = const ['首页', '记录', '设置'];
   final icons = const [
     CupertinoIcons.house,
     CupertinoIcons.list_bullet,
-    CupertinoIcons.cloud,
     CupertinoIcons.gear,
   ];
   final activeIcons = const [
     CupertinoIcons.house_fill,
     CupertinoIcons.list_bullet,
-    CupertinoIcons.cloud_fill,
     CupertinoIcons.gear,
   ];
 
@@ -157,12 +155,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   TodayPage(
                     store: widget.store,
                     onSync: () => select(2),
-                    onSettings: () => select(3),
+                    onSettings: () => select(2),
                     onRecords: () => select(1),
                   ),
                   RecordsPage(store: widget.store),
-                  SyncPage(store: widget.store, onSettings: () => select(3)),
-                  SettingsPage(store: widget.store),
+                  SettingsPage(
+                    store: widget.store,
+                    onSync: () => Navigator.of(context).push(
+                      CupertinoPageRoute<void>(
+                        builder: (_) => SyncPage(
+                          store: widget.store,
+                          onSettings: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               // Keep the capsule mounted while the keyboard is open: hiding it
@@ -197,12 +204,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   Widget _navigation() => LayoutBuilder(
     builder: (context, constraints) {
-      final width = constraints.maxWidth / 4;
+      final width = constraints.maxWidth / 3;
       void drag(DragUpdateDetails details) {
         if (!controller.hasClients) return;
         final page =
             ((controller.page ?? index.toDouble()) + details.delta.dx / width)
-                .clamp(0.0, 3.0);
+                .clamp(0.0, 2.0);
         controller.jumpTo(page * controller.position.viewportDimension);
       }
 
@@ -230,7 +237,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 (controller.hasClients
                         ? controller.page ?? index.toDouble()
                         : index.toDouble())
-                    .clamp(0.0, 3.0);
+                    .clamp(0.0, 2.0);
             return Stack(
               children: [
                 Positioned(
@@ -242,7 +249,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                     radius: GlassSpec.indicatorRadius,
                   ),
                 ),
-                Row(children: List.generate(4, (i) => _navItem(context, i))),
+                Row(children: List.generate(3, (i) => _navItem(context, i))),
               ],
             );
           },

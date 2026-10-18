@@ -74,13 +74,55 @@ SyncStatusSummary syncSummary(Workspace store) {
   return SyncStatusSummary(
     kind: SyncStatusKind.ready,
     title: lastText.isEmpty ? '本地数据已保存' : '已与云端同步',
-    detail: lastText.isEmpty
-        ? '配置完成后，每次保存都会自动上传'
-        : '最近同步 $lastText · 保存后自动上传',
+    detail: lastText.isEmpty ? '配置完成后，每次保存都会自动上传' : '最近同步 $lastText · 保存后自动上传',
     count: 0,
     icon: CupertinoIcons.checkmark_circle_fill,
     color: AppColors.success,
   );
+}
+
+class CollaborationStatusBar extends StatelessWidget {
+  const CollaborationStatusBar({
+    super.key,
+    required this.store,
+    required this.onTap,
+  });
+  final Workspace store;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = syncSummary(store);
+    final remote = store.remoteEntries.length;
+    final label = remote > 0
+        ? '同事刚修改了 $remote 条记录 · 查看协作状态'
+        : summary.kind == SyncStatusKind.ready
+        ? summary.detail
+        : '${summary.title} · 查看协作状态';
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      onPressed: onTap,
+      child: Row(
+        children: [
+          Icon(summary.icon, size: 15, color: summary.color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppType.caption.copyWith(color: summary.color),
+            ),
+          ),
+          Icon(
+            CupertinoIcons.chevron_right,
+            size: 12,
+            color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Cloud timestamps are stored as UTC ISO strings; show them in device time.
@@ -145,11 +187,7 @@ class _SyncPageState extends State<SyncPage> {
       // local work with an older cloud copy.
       final outcome = await service.refresh();
       if (!mounted) return;
-      await message(
-        context,
-        outcome.ok ? '同步完成' : '同步失败',
-        outcome.message,
-      );
+      await message(context, outcome.ok ? '同步完成' : '同步失败', outcome.message);
     } on Object catch (e) {
       widget.store.syncMessage = '同步失败';
       if (mounted) await message(context, '同步失败', '$e');
@@ -157,6 +195,7 @@ class _SyncPageState extends State<SyncPage> {
       if (mounted) setState(() => syncing = false);
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final s = summary;
@@ -321,9 +360,7 @@ class _SyncPageState extends State<SyncPage> {
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  autoUpload == null
-                      ? '自动上传：未启用'
-                      : '自动上传：${autoUpload.label}',
+                  autoUpload == null ? '自动上传：未启用' : '自动上传：${autoUpload.label}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(

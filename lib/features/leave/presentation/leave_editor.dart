@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import '../../../core/data/workspace.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/calendar_board.dart';
+import '../../../core/widgets/person_picker.dart';
 import '../../../core/widgets/ui.dart';
 import '../../../core/widgets/app_widgets.dart';
 
@@ -110,21 +111,12 @@ class _LeaveEditorPageState extends State<LeaveEditorPage> {
       await message(context, '还没有人员', '请先在设置 → 人员名单中新增或导入人员。');
       return;
     }
-    final picked = await choose<String>(
+    final picked = await showPersonPickerSheet(
       context,
-      '请假人员',
-      {for (final p in store.visiblePeople) p.id: p.name},
+      people: store.visiblePeople,
+      title: '请假人员',
       subtitle: '已确认请假的人员当天不可登记考勤',
-      details: {
-        for (final p in store.visiblePeople)
-          p.id: [
-            if (p.employeeId.isNotEmpty) p.employeeId,
-            if (p.gender.isNotEmpty) p.gender,
-            if (!p.active) '已停用',
-          ].join(' · '),
-      },
-      fallbackIcon: CupertinoIcons.person,
-      selected: personId.isEmpty ? null : {personId},
+      selectedId: personId.isEmpty ? null : personId,
     );
     if (picked != null && mounted) setState(() => personId = picked);
   }

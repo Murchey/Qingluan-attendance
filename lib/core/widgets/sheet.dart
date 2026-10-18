@@ -483,3 +483,113 @@ Future<bool> showConfirmSheet(
   );
   return result ?? false;
 }
+
+/// Wheel + preset chips for picking a clock time. Presets matter for the
+/// administrators: 08:30 / 09:00 / 18:00 cover most of the corrections.
+Future<String?> showTimePickSheet(
+  BuildContext context, {
+  String title = '选择时间',
+  String initial = '09:00',
+  List<String> presets = const ['08:30', '09:00', '12:00', '18:00'],
+}) {
+  final parts = initial.split(':');
+  var value = DateTime(
+    2000,
+    1,
+    1,
+    int.tryParse(parts.first) ?? 9,
+    parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0,
+  );
+  String hhmm(DateTime v) =>
+      '${v.hour.toString().padLeft(2, '0')}:${v.minute.toString().padLeft(2, '0')}';
+  return showAppSheet<String>(
+    context,
+    (sheetContext) => StatefulBuilder(
+      builder: (context, setSheetState) => SheetPanel(
+        title: title,
+        scroll: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (presets.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final preset in presets)
+                      GestureDetector(
+                        onTap: () => setSheetState(() {
+                          final p = preset.split(':');
+                          value = DateTime(
+                            2000,
+                            1,
+                            1,
+                            int.parse(p[0]),
+                            int.parse(p[1]),
+                          );
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: CupertinoColors.tertiarySystemFill.resolveFrom(
+                              context,
+                            ),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            preset,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            SizedBox(
+              height: 190,
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.time,
+                use24hFormat: true,
+                initialDateTime: value,
+                onDateTimeChanged: (v) => setSheetState(() => value = v),
+              ),
+            ),
+          ],
+        ),
+        footer: Row(
+          children: [
+            Expanded(
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => Navigator.of(sheetContext).pop(),
+                child: const SizedBox(
+                  height: 52,
+                  child: Center(child: Text('取消')),
+                ),
+              ),
+            ),
+            Expanded(
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () =>
+                    Navigator.of(sheetContext).pop(hhmm(value)),
+                child: const SizedBox(
+                  height: 52,
+                  child: Center(child: Text('确定')),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}

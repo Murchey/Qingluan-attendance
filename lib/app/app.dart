@@ -5,6 +5,8 @@ import '../core/data/workspace.dart';
 import '../core/reminders/notice_service.dart';
 import '../core/theme/app_theme.dart';
 import '../core/widgets/app_widgets.dart';
+import '../core/config/legal_text.dart';
+import '../features/onboarding/presentation/onboarding_page.dart';
 import '../features/shell/presentation/app_shell.dart';
 
 class QingLuanApp extends StatelessWidget {
@@ -53,7 +55,14 @@ class QingLuanApp extends StatelessWidget {
           ),
         );
       },
-      home: AppShell(store: store, noticeSource: noticeSource),
+      home: needsOnboarding(store)
+          ? OnboardingPage(store: store)
+          : AppShell(store: store, noticeSource: noticeSource),
     ),
   );
 }
+
+/// First launch, or a privacy policy update, shows the guide before the shell.
+bool needsOnboarding(Workspace store) =>
+    store.settings['onboarded'] != true ||
+    store.settings['policyVersion']?.toString() != kPolicyVersion;

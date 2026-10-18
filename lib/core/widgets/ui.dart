@@ -306,11 +306,16 @@ class Screen extends StatelessWidget {
     required this.children,
     this.actions = const [],
     this.sidebarCount = 0,
+    this.onRefresh,
   });
   final String title;
   final List<Widget> children;
   final List<Widget> actions;
   final int sidebarCount;
+
+  /// Enables iOS-style pull-to-refresh on the page. The spinner sits just below
+  /// the gradient header so the pull gesture stays visible.
+  final Future<void> Function()? onRefresh;
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.paddingOf(context).top;
@@ -349,17 +354,41 @@ class Screen extends StatelessWidget {
           children: [
             const Positioned.fill(child: AppBackdrop()),
             Positioned.fill(
-              child: ListView.builder(
-                padding: EdgeInsets.fromLTRB(
-                  20,
-                  top + headerHeight + 6,
-                  20,
-                  GlassSpec.contentBottomInset +
-                      MediaQuery.paddingOf(context).bottom,
-                ),
-                itemCount: content.length,
-                itemBuilder: (context, index) => content[index],
-              ),
+              child: onRefresh == null
+                  ? ListView.builder(
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        top + headerHeight + 6,
+                        20,
+                        GlassSpec.contentBottomInset +
+                            MediaQuery.paddingOf(context).bottom,
+                      ),
+                      itemCount: content.length,
+                      itemBuilder: (context, index) => content[index],
+                    )
+                  : CustomScrollView(
+                      slivers: [
+                        SliverPadding(
+                          padding: EdgeInsets.only(top: top + headerHeight + 6),
+                          sliver: CupertinoSliverRefreshControl(
+                            onRefresh: onRefresh,
+                          ),
+                        ),
+                        SliverPadding(
+                          padding: EdgeInsets.fromLTRB(
+                            20,
+                            0,
+                            20,
+                            GlassSpec.contentBottomInset +
+                                MediaQuery.paddingOf(context).bottom,
+                          ),
+                          sliver: SliverList.builder(
+                            itemCount: content.length,
+                            itemBuilder: (context, index) => content[index],
+                          ),
+                        ),
+                      ],
+                    ),
             ),
             Positioned(
               top: 0,

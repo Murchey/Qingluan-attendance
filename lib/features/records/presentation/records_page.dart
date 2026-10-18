@@ -17,6 +17,20 @@ class RecordsPage extends StatefulWidget {
 
 class _RecordsPageState extends State<RecordsPage> {
   String query = '', person = '', status = '', author = '';
+  String? syncNote;
+
+  /// Pull-to-refresh: push pending edits, then pull the cloud copy when the
+  /// local side has nothing unsaved.
+  Future<void> refresh() async {
+    final sync = widget.store.sync;
+    if (sync == null) {
+      if (mounted) setState(() => syncNote = '同步服务未启动');
+      return;
+    }
+    final outcome = await sync.refresh();
+    if (!mounted) return;
+    setState(() => syncNote = outcome.message);
+  }
   DateTime? from, to;
   List<Entry> get filtered =>
       widget.store.liveEntries
@@ -337,6 +351,7 @@ class _RecordsPageState extends State<RecordsPage> {
     return Screen(
       title: '历史记录',
       sidebarCount: 3,
+      onRefresh: refresh,
       actions: [
         GlassIconButton(
           icon: CupertinoIcons.square_arrow_up,
@@ -366,7 +381,9 @@ class _RecordsPageState extends State<RecordsPage> {
           children: [
             Expanded(
               child: Text(
-                '共 ${rows.length} 条记录',
+                syncNote == null
+                    ? '共 ${rows.length} 条记录'
+                    : '共 ${rows.length} 条记录 · $syncNote',
                 style: AppType.footnoteStyle.copyWith(color: secondary),
               ),
             ),

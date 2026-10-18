@@ -9,14 +9,17 @@ import 'object_storage.dart';
 class CosObjectStorage implements ObjectStorage {
   CosObjectStorage({
     required this.bucketUrl,
-    required this.secretId,
-    required this.secretKey,
+    required String secretId,
+    required String secretKey,
+    this.securityToken = '',
     this.timeout = const Duration(seconds: 20),
-  });
+  }) : secretId = secretId.trim(),
+       secretKey = secretKey.trim();
 
   final Uri bucketUrl;
   final String secretId;
   final String secretKey;
+  final String securityToken;
   final Duration timeout;
 
   Uri _uri(String key) => Uri.parse(
@@ -27,20 +30,40 @@ class CosObjectStorage implements ObjectStorage {
   String _hmac(String key, String value) =>
       Hmac(sha1, utf8.encode(key)).convert(utf8.encode(value)).toString();
 
+  String _encode(String value) =>
+      Uri.encodeQueryComponent(value).replaceAll('+', '%20');
+
+  String _responseError(List<int> bytes, int statusCode) {
+    final body = utf8.decode(bytes, allowMalformed: true);
+    final code = RegExp(r'<Code>([^<]+)</Code>').firstMatch(body)?.group(1);
+    final detail = RegExp(
+      r'<Message>([^<]+)</Message>',
+    ).firstMatch(body)?.group(1);
+    if (code != null || detail != null) {
+      return 'COS HTTP $statusCode${code == null ? '' : ' [$code]'}${detail == null ? '' : ': $detail'}';
+    }
+    return 'COS HTTP $statusCode';
+  }
+
   String _authorization(String method, Uri uri, String bodyHash, DateTime now) {
     final start = now.toUtc().millisecondsSinceEpoch ~/ 1000;
     final end = start + timeout.inSeconds.clamp(60, 600);
     final signTime = '$start;$end';
     final keyTime = signTime;
     final signKey = _hmac(secretKey, keyTime);
-    final headerList = 'host';
+    final headerList = securityToken.isEmpty
+        ? 'host'
+        : 'host;x-cos-security-token';
+    final headers = securityToken.isEmpty
+        ? 'host=${_encode(uri.host)}'
+        : 'host=${_encode(uri.host)}&x-cos-security-token=${_encode(securityToken)}';
     final httpString = [
       method.toLowerCase(),
       uri.path,
       '',
-      'host=${uri.host}',
+      headers,
       '',
-    ].join('&');
+    ].join('\n');
     final stringToSign = 'sha1\n$keyTime\n${_sha1(httpString)}\n';
     final signature = _hmac(signKey, stringToSign);
     return 'q-sign-algorithm=sha1&q-ak=$secretId&q-sign-time=$signTime&'
@@ -62,6 +85,9 @@ class CosObjectStorage implements ObjectStorage {
       final request = await client.openUrl(method, uri).timeout(timeout);
       final bytes = body ?? const <int>[];
       request.headers.set(HttpHeaders.hostHeader, uri.host);
+      if (securityToken.isNotEmpty) {
+        request.headers.set('x-cos-security-token', securityToken);
+      }
       request.headers.set(
         'Authorization',
         _authorization(method, uri, _sha1(utf8.decode(bytes)), DateTime.now()),
@@ -76,9 +102,7 @@ class CosObjectStorage implements ObjectStorage {
         (a, b) => a..addAll(b),
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        return Failure(
-          'COS HTTP ${response.statusCode}: ${utf8.decode(responseBytes, allowMalformed: true)}',
-        );
+        return Failure(_responseError(responseBytes, response.statusCode));
       }
       if (method == 'GET') {
         return Success(
@@ -128,13 +152,19 @@ class CosObjectStorage implements ObjectStorage {
   static CosObjectStorage? fromSettings(
     Map<String, dynamic> settings,
     String id,
-    String key,
-  ) {
+    String key, {
+    String token = '',
+  }) {
     final provider = settings['provider']?.toString() ?? 'COS';
     if (provider != 'COS') return null;
     final value = BucketAddress.configuredUrl(settings, provider);
     final uri = Uri.tryParse(value);
     if (uri == null || value.isEmpty) return null;
-    return CosObjectStorage(bucketUrl: uri, secretId: id, secretKey: key);
+    return CosObjectStorage(
+      bucketUrl: uri,
+      secretId: id,
+      secretKey: key,
+      securityToken: token,
+    );
   }
 }

@@ -1,8 +1,12 @@
 import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../core/config/legal_text.dart';
 import '../../../core/data/workspace.dart';
+import '../../../core/update/update_config.dart';
+import '../../legal/presentation/legal_page.dart';
 import '../../../core/data/spreadsheet_io.dart';
+import '../../../core/widgets/link_sheet.dart';
 import '../../../core/widgets/ui.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/design_tokens.dart';
@@ -100,7 +104,13 @@ class _SettingsPageState extends State<SettingsPage> {
     if (provider == 'COS') {
       final id = await secure.read(key: 'storage_id') ?? '';
       final key = await secure.read(key: 'storage_key') ?? '';
-      final storage = CosObjectStorage.fromSettings(store.settings, id, key);
+      final token = await secure.read(key: 'storage_token') ?? '';
+      final storage = CosObjectStorage.fromSettings(
+        store.settings,
+        id,
+        key,
+        token: token,
+      );
       if (storage == null) {
         if (!mounted) return;
         await message(context, '未配置服务地址', '请先填写 COS 存储桶直链。');
@@ -194,6 +204,13 @@ class _SettingsPageState extends State<SettingsPage> {
               icon: CupertinoIcons.chart_bar_alt_fill,
               onTap: () => openScoreRules(context, store),
             ),
+            _row(
+              context,
+              '班次时间',
+              detail: store.shift.label,
+              icon: CupertinoIcons.clock_fill,
+              onTap: () => openSection('班次'),
+            ),
           ]),
           _group('偏好与服务', inset: 58, [
             _row(
@@ -209,6 +226,25 @@ class _SettingsPageState extends State<SettingsPage> {
               detail: store.notices['lastResult']?.toString() ?? '尚未检查通知',
               icon: CupertinoIcons.bell,
               onTap: () => openSection('通知'),
+            ),
+            SettingRow(
+              '保存后自动上传',
+              detail: store.sync == null
+                  ? '同步服务未启动'
+                  : store.settings['autoUpload'] != false
+                  ? '每次保存后自动上传到对象存储'
+                  : '已关闭：只保存在本机，需手动同步',
+              leading: IconBadge(
+                icon: CupertinoIcons.arrow_up_circle,
+                tint: CupertinoDynamicColor.resolve(AppColors.navy, context),
+              ),
+              trailing: CupertinoSwitch(
+                value: store.settings['autoUpload'] != false,
+                onChanged: (v) {
+                  store.settings['autoUpload'] = v;
+                  store.persist();
+                },
+              ),
             ),
             _row(
               context,
@@ -246,6 +282,59 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ]),
         ],
+        if (widget.section == '班次')
+          _group('班次', [
+            SettingRow(
+              '上班时间',
+              detail: store.shift.start,
+              onTap: () async {
+                final picked = await showTimePickSheet(
+                  context,
+                  title: '上班时间',
+                  initial: store.shift.start,
+                  presets: const ['08:00', '08:30', '09:00'],
+                );
+                if (picked == null) return;
+                await store.setShift(store.shift.copyWith(start: picked));
+              },
+            ),
+            SettingRow(
+              '下班时间',
+              detail: store.shift.end,
+              onTap: () async {
+                final picked = await showTimePickSheet(
+                  context,
+                  title: '下班时间',
+                  initial: store.shift.end,
+                  presets: const ['17:30', '18:00', '18:30'],
+                );
+                if (picked == null) return;
+                await store.setShift(store.shift.copyWith(end: picked));
+              },
+            ),
+            SettingRow(
+              '迟到宽限',
+              detail: store.shift.graceMinutes == 0
+                  ? '不宽限'
+                  : '${store.shift.graceMinutes} 分钟',
+              onTap: () async {
+                final value = await choose<int>(
+                  context,
+                  '迟到宽限',
+                  const {0: '不宽限', 5: '5 分钟', 10: '10 分钟', 15: '15 分钟', 30: '30 分钟'},
+                  subtitle: '超过上班时间加宽限即判定迟到',
+                );
+                if (value == null) return;
+                await store.setShift(
+                  store.shift.copyWith(graceMinutes: value),
+                );
+              },
+            ),
+            const SettingRow(
+              '状态推导',
+              detail: '签到晚于上班时间即迟到，签退早于下班时间即早退',
+            ),
+          ]),
         if (widget.section == '本地身份')
           _group('本地身份', [
             SettingRow(
@@ -323,6 +412,11 @@ class _SettingsPageState extends State<SettingsPage> {
               detail: '不会进入业务数据或日志',
               onTap: () =>
                   credential('storage_key', 'SecretAccessKey / SecretKey'),
+            ),
+            SettingRow(
+              'SecurityToken（临时密钥可选）',
+              detail: '仅临时 STS 密钥需要，保存至系统安全存储',
+              onTap: () => credential('storage_token', 'SecurityToken'),
             ),
             SettingRow('连接测试', detail: '仅检查地址连通性，不验证存储权限', onTap: probe),
           ]),
@@ -479,6 +573,42 @@ class _SettingsPageState extends State<SettingsPage> {
         if (widget.section == '关于')
           _group('关于', [
             const SettingRow('青鸾考勤', detail: '1.0.0 · 本地优先'),
+            SettingRow(
+              'GitHub 仓库',
+              detail: 'Murchey/Qingluan-attendance · 源码与 Release',
+              onTap: () => showLinkSheet(
+                context,
+                title: 'GitHub 仓库',
+                url: UpdateDefaults.github,
+              ),
+            ),
+            SettingRow(
+              'Gitee 仓库',
+              detail: 'Murchey/qingluan-attendance · 国内镜像',
+              onTap: () => showLinkSheet(
+                context,
+                title: 'Gitee 仓库',
+                url: UpdateDefaults.gitee,
+              ),
+            ),
+            SettingRow(
+              '使用指南',
+              detail: '首次使用、登记、请假、同步的步骤',
+              onTap: () => Navigator.of(context).push(
+                CupertinoPageRoute<void>(
+                  builder: (_) => const LegalPage.guide(),
+                ),
+              ),
+            ),
+            SettingRow(
+              '隐私政策',
+              detail: '数据只在本机与你自己的存储桶 · v$kPolicyVersion',
+              onTap: () => Navigator.of(context).push(
+                CupertinoPageRoute<void>(
+                  builder: (_) => const LegalPage.privacy(),
+                ),
+              ),
+            ),
             SettingRow('数据目录', detail: store.dataPath),
             SettingRow(
               '开源许可',

@@ -5,7 +5,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
+import '../sync/sync_service.dart';
 import '../update/update_config.dart';
+import 'shift.dart';
 
 String businessDay([DateTime? instant]) => (instant ?? DateTime.now())
     .toUtc()
@@ -185,6 +187,8 @@ class Workspace extends ChangeNotifier {
   };
   final List<Entry> remoteEntries = [];
   final Set<String> pendingDays = {};
+  /// Write-through uploader, attached by the app bootstrap.
+  SyncService? sync;
   String? lastSync;
   String syncMessage = '尚未配置对象存储，数据保存在本机';
   String name(String id) =>
@@ -192,6 +196,62 @@ class Workspace extends ChangeNotifier {
   List<Person> get visiblePeople => people.where((p) => !p.deleted).toList();
   List<Person> get activePeople =>
       people.where((p) => p.active && !p.deleted).toList();
+  /// Shift rules used by the one-tap roster to derive 迟到 / 早退.
+  Shift get shift => Shift.fromSettings(settings);
+
+  /// Persists the shift rules edited in settings.
+  Future<void> setShift(Shift value) async {
+    if (!value.valid) {
+      throw const FormatException('上班时间必须早于下班时间');
+    }
+    settings.addAll(value.toSettings());
+    await persist();
+  }
+  /// One-tap check-in: books the current business time and the status the shift
+  /// implies, without opening an editor.
+  Future<void> tapCheckIn(String personId, String day, {DateTime? at}) async {
+    final now = at ?? DateTime.now();
+    final time = Shift.clock(now);
+    final existing = record(personId, day);
+    final fields = <String, String>{
+      ...?existing?.fields,
+      'in': time,
+      if ((existing?.fields['out'] ?? '').isEmpty) 'status': shift.statusForIn(now),
+      if (existing == null || (existing.fields['status'] ?? '').isEmpty)
+        'status': shift.statusForIn(now),
+    };
+    await saveEntries([personId], day, fields);
+  }
+
+  /// Second tap on a registered row: books the check-out time.
+  Future<void> tapCheckOut(String personId, String day, {DateTime? at}) async {
+    final now = at ?? DateTime.now();
+    final existing = record(personId, day);
+    final fields = <String, String>{
+      ...?existing?.fields,
+      'out': Shift.clock(now),
+      'status': shift.statusForOut(
+        now,
+        inStatus: existing?.fields['status'] ?? '正常',
+      ),
+    };
+    await saveEntries([personId], day, fields);
+  }
+
+  /// Restores a batch snapshot: `null` means "this person had no record".
+  Future<void> restoreEntries(
+    String day,
+    Map<String, Map<String, String>?> snapshot,
+  ) async {
+    for (final item in snapshot.entries) {
+      final current = record(item.key, day);
+      if (item.value == null) {
+        if (current != null) await deleteEntry(current);
+      } else {
+        await saveEntries([item.key], day, item.value!);
+      }
+    }
+  }
   List<Entry> get liveEntries => entries.where((e) => !e.deleted).toList();
   Entry? record(String personId, String day) => liveEntries
       .where((e) => e.personId == personId && e.day == day)
@@ -600,6 +660,10 @@ class Workspace extends ChangeNotifier {
     pendingDays.addAll([today, yesterday]);
   }
 
+  /// Lets collaborators (the sync service) refresh listeners without owning
+  /// the notifier.
+  void touch() => notifyListeners();
+
   Future<void> persist() async {
     await _db?.insert('workspace', {
       'id': 1,
@@ -617,6 +681,7 @@ class Workspace extends ChangeNotifier {
     'notices': notices,
     'settings': settings,
     'pendingDays': pendingDays.toList(),
+    'lastSync': lastSync,
   };
 
   Future<void> loadPayload(Map<String, dynamic> j) async {
@@ -640,6 +705,7 @@ class Workspace extends ChangeNotifier {
     pendingDays
       ..clear()
       ..addAll(List<String>.from(j['pendingDays'] ?? const []));
+    lastSync = j['lastSync']?.toString() ?? lastSync;
     await persist();
   }
 

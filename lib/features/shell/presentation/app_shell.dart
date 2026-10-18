@@ -74,6 +74,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (!initial && widget.store.settings['autoSync'] == false) return;
     _checking = true;
     try {
+      // Pending local edits are pushed before the notice check so both stay in
+      // one retry window; failures keep the queue for the next attempt.
+      await widget.store.sync?.upload();
       final result = await syncNotices(
         widget.store,
         source: widget.noticeSource,
@@ -146,6 +149,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
               const Positioned.fill(child: GlassBackdrop()),
               PageView(
                 controller: controller,
+                // The roster uses horizontal gestures (swipe to mark absent or
+                // leave), so tabs switch only from the capsule.
+                physics: const NeverScrollableScrollPhysics(),
                 onPageChanged: (i) => setState(() => index = i),
                 children: [
                   TodayPage(

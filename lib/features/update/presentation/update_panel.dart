@@ -11,7 +11,6 @@ import '../../../core/update/update_platform.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/markdown.dart';
 import '../../../core/widgets/sheet.dart';
-import '../../../core/widgets/toast.dart';
 import '../../../core/widgets/ui.dart';
 
 Future<void> checkForUpdates(
@@ -25,7 +24,6 @@ Future<void> checkForUpdates(
     store.settings,
   );
   final latest = catalog.latest;
-  final failed = latest == null && catalog.errors.isNotEmpty;
   final summary = latest == null
       ? catalog.errors.isEmpty
             ? '仓库尚未发布正式版本'
@@ -45,9 +43,8 @@ Future<void> checkForUpdates(
       currentVersion: current,
     );
   } else if (automatic) {
-    // Silent launches still tell the user when both repositories are
-    // unreachable; a successful "already latest" check stays quiet.
-    if (failed) showToast(context, summary);
+    // A background check must not interrupt the roster: the result is stored
+    // in settings and shown on the update page when the administrator asks.
   } else {
     await showMessageSheet(
       context,

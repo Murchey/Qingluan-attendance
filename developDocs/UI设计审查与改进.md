@@ -128,3 +128,16 @@ adb shell ime disable <ime-id> && adb shell ime enable <ime-id> && adb shell ime
 2. 首页"今日记录"支持左滑快捷编辑/删除（需配合撤销 toast）。
 3. 统计页图表化（类型分布目前是条形，可升级为环形/柱状）。
 4. Dynamic Type 最大档位下的布局回归测试。
+
+## 首次引导与隐私政策
+
+- 网关：`needsOnboarding(store)` 在 `onboarded != true` 或 `policyVersion != kPolicyVersion` 时把 `home` 换成 `OnboardingPage`；完成后写 `settings['onboarded']` 与 `settings['policyVersion']`，随 SQLite 持久化，重启不再出现。
+- 引导四页：数据在本机 / 每日登记 / 请假与考勤锁 / 可选云同步；最后一页必须勾选「我已阅读并同意《隐私政策》」，链接直接打开全文。
+- 文案与政策在 `lib/core/config/legal_text.dart`，用现有 `MarkdownView` 渲染。注意该渲染器**不支持 Markdown 表格**，权限说明等结构化内容请用列表表达。
+- 设置 → 关于 增加「使用指南」「隐私政策」两个入口，政策行展示当前版本号。
+- 测试：`test/onboarding_test.dart` 覆盖首次展示、未勾选不能进入、勾选后进入主界面、跳过也记录版本、政策升级后重新询问、两类正文可渲染。
+## 人员选择与关于页（本轮）
+
+- 请假等单选人员场景统一走 `showPersonPickerSheet`（`lib/core/widgets/person_picker.dart`）：面板顶部带搜索框，按姓名或工号过滤，支持 `disabledIds` 置灰、`selectedId` 回显勾选。考勤批量登记仍用带性别筛选的整页选择器。
+- 设置 → 关于 增加 GitHub / Gitee 仓库两行，链接来自 `UpdateDefaults`，点击打开 `showLinkSheet`（复制链接 / 系统分享）。不引入 url_launcher：企业分发与内网环境里 ACTION_VIEW 经常被 ROM 拦截，复制+分享更稳。
+- 测试：`test/picker_about_test.dart` 覆盖搜索过滤（姓名、工号、无结果）、输入框聚焦后弹出键盘、关于页仓库行与链接面板。

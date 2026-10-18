@@ -1,11 +1,9 @@
 import 'package:flutter/cupertino.dart';
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/config/bucket_address.dart';
 import '../../../core/data/workspace.dart';
+import '../../../core/sync/sync_service.dart';
 import '../../../core/storage/cos_storage.dart';
-import '../../../core/storage/object_storage.dart';
 import '../../../core/result/app_result.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/design_tokens.dart';
@@ -71,14 +69,27 @@ SyncStatusSummary syncSummary(Workspace store) {
       color: AppColors.muted,
     );
   }
-  return const SyncStatusSummary(
+  final last = store.lastSync;
+  final lastText = last == null ? '' : formatSyncTime(last);
+  return SyncStatusSummary(
     kind: SyncStatusKind.ready,
-    title: '本地数据已保存',
-    detail: '没有待上传变更，云端同步服务尚未启用',
+    title: lastText.isEmpty ? '本地数据已保存' : '已与云端同步',
+    detail: lastText.isEmpty
+        ? '配置完成后，每次保存都会自动上传'
+        : '最近同步 $lastText · 保存后自动上传',
     count: 0,
     icon: CupertinoIcons.checkmark_circle_fill,
     color: AppColors.success,
   );
+}
+
+/// Cloud timestamps are stored as UTC ISO strings; show them in device time.
+String formatSyncTime(String iso) {
+  final parsed = DateTime.tryParse(iso);
+  if (parsed == null) return iso;
+  final local = parsed.toLocal();
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
 class SyncPage extends StatefulWidget {
@@ -119,6 +130,7 @@ class _SyncPageState extends State<SyncPage> {
       widget.store.settings,
       await secure.read(key: 'storage_id') ?? '',
       await secure.read(key: 'storage_key') ?? '',
+      token: await secure.read(key: 'storage_token') ?? '',
     );
   }
 
@@ -126,53 +138,18 @@ class _SyncPageState extends State<SyncPage> {
     if (syncing) return;
     setState(() => syncing = true);
     try {
-      final storage = await _storage();
-      if (storage == null) throw const FormatException('请先配置 COS 地址和密钥');
-      final remote = await storage.get('data/workspace.json');
-      if (remote is Success<RemoteObject?> &&
-          remote.value != null &&
-          widget.store.pendingDays.isEmpty) {
-        try {
-          final payload = jsonDecode(utf8.decode(remote.value!.bytes));
-          if (payload is Map<String, dynamic>) {
-            await widget.store.loadPayload(payload);
-            widget.store.lastSync = DateTime.now().toUtc().toIso8601String();
-            widget.store.syncMessage = '同步成功';
-            if (mounted) await message(context, '同步成功', '已从腾讯云 COS 下载最新工作区数据。');
-            return;
-          }
-        } on FormatException {
-          // A malformed remote snapshot is reported by the upload path below.
-        }
-      }
-      final payload = utf8.encode(jsonEncode(widget.store.toPayload()));
-      final digest = sha256.convert(payload).toString();
-      final put = await storage.put(
-        'data/workspace.json',
-        payload,
-        sha256: digest,
+      final service = widget.store.sync;
+      if (service == null) throw const FormatException('同步服务未启动');
+      // Same path as pull-to-refresh: push pending edits, then compare the
+      // remote manifest before pulling, so 「立即同步」 never silently replaces
+      // local work with an older cloud copy.
+      final outcome = await service.refresh();
+      if (!mounted) return;
+      await message(
+        context,
+        outcome.ok ? '同步完成' : '同步失败',
+        outcome.message,
       );
-      if (put is Failure) throw Exception(put.message);
-      final index = utf8.encode(
-        jsonEncode({
-          'schema': 1,
-          'data': {
-            'hash': digest,
-            'updatedAt': DateTime.now().toUtc().toIso8601String(),
-          },
-        }),
-      );
-      final indexResult = await storage.put(
-        'index.json',
-        index,
-        sha256: sha256.convert(index).toString(),
-      );
-      if (indexResult is Failure) throw Exception(indexResult.message);
-      widget.store.pendingDays.clear();
-      widget.store.lastSync = DateTime.now().toUtc().toIso8601String();
-      widget.store.syncMessage = '同步成功';
-      await widget.store.persist();
-      if (mounted) await message(context, '同步成功', '本机数据已上传到腾讯云 COS。');
     } on Object catch (e) {
       widget.store.syncMessage = '同步失败';
       if (mounted) await message(context, '同步失败', '$e');
@@ -180,7 +157,6 @@ class _SyncPageState extends State<SyncPage> {
       if (mounted) setState(() => syncing = false);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final s = summary;
@@ -227,16 +203,22 @@ class _SyncPageState extends State<SyncPage> {
           ...conflictDays.map((day) => _conflictTile(day)),
         ],
         if (pending.isEmpty && conflictDays.isEmpty)
-          const EmptyState(
+          EmptyState(
             icon: CupertinoIcons.cloud,
             title: '暂无待同步变更',
-            message: '新增人员或登记后，本地变化会出现在这里。离线数据会在同步服务启用后继续保留。',
+            message: s.kind == SyncStatusKind.unconfigured
+                ? '新增人员或登记后，本地变化会出现在这里。'
+                : '保存后会自动上传，这里只保留上传失败的变更。',
           ),
         const SizedBox(height: 18),
-        const Text(
-          '已支持腾讯云 COS 签名上传。首次使用请在设置中填写存储桶直链和密钥。',
-          style: TextStyle(color: CupertinoColors.secondaryLabel, fontSize: 13),
-        ),
+        if (s.kind == SyncStatusKind.unconfigured)
+          const Text(
+            '还没填存储桶直链与密钥。填好后每次保存都会自动上传，失败也不会丢数据。',
+            style: TextStyle(
+              color: CupertinoColors.secondaryLabel,
+              fontSize: 13,
+            ),
+          ),
       ],
     );
   }
@@ -245,8 +227,11 @@ class _SyncPageState extends State<SyncPage> {
     final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
     final tertiary = CupertinoColors.tertiaryLabel.resolveFrom(context);
     final provider = (widget.store.settings['provider'] ?? '未配置').toString();
-    final lastSync = widget.store.lastSync ?? '尚未同步';
+    final lastSync = widget.store.lastSync == null
+        ? '尚未同步'
+        : formatSyncTime(widget.store.lastSync!);
     final notice = widget.store.notices['lastResult']?.toString() ?? '尚未检查通知';
+    final autoUpload = widget.store.sync;
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -322,6 +307,36 @@ class _SyncPageState extends State<SyncPage> {
             ],
           ),
           const SizedBox(height: Gap.xs),
+          Row(
+            children: [
+              Icon(
+                autoUpload?.phase == SyncPhase.failed
+                    ? CupertinoIcons.exclamationmark_circle
+                    : CupertinoIcons.arrow_up_circle,
+                size: 12,
+                color: autoUpload?.phase == SyncPhase.failed
+                    ? AppColors.danger.resolveFrom(context)
+                    : tertiary,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  autoUpload == null
+                      ? '自动上传：未启用'
+                      : '自动上传：${autoUpload.label}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: autoUpload?.phase == SyncPhase.failed
+                        ? AppColors.danger.resolveFrom(context)
+                        : secondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Gap.xxs),
           Row(
             children: [
               Icon(CupertinoIcons.bell, size: 12, color: tertiary),

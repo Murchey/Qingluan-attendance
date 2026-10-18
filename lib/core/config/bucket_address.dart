@@ -42,7 +42,16 @@ class BucketAddress {
   /// Read earlier Endpoint + Bucket settings without discarding S3 settings.
   static String configuredUrl(Map<String, dynamic> settings, String provider) {
     final saved = settings[settingKey(provider)] as String?;
-    if (saved != null) return saved;
+    if (saved != null) {
+      // Older builds could persist an unchecked value. Treat it as configured
+      // only when it still satisfies the provider-native bucket URL contract.
+      if (saved.isEmpty) return '';
+      try {
+        return BucketAddress.parse(provider, saved).url.toString();
+      } on FormatException {
+        return '';
+      }
+    }
     final endpoint = settings['endpoint'] as String? ?? '';
     try {
       return BucketAddress.parse(provider, endpoint).url.toString();

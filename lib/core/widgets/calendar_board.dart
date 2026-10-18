@@ -23,9 +23,11 @@ Iterable<DateTime> daysBetween(String from, String to) sync* {
   final start = parseDay(from);
   final end = parseDay(to);
   if (start == null || end == null) return;
-  for (var d = DateTime(start.year, start.month, start.day);
-      !d.isAfter(end);
-      d = DateTime(d.year, d.month, d.day + 1)) {
+  for (
+    var d = DateTime(start.year, start.month, start.day);
+    !d.isAfter(end);
+    d = DateTime(d.year, d.month, d.day + 1)
+  ) {
     yield d;
   }
 }
@@ -155,9 +157,9 @@ class _CalendarBoardState extends State<CalendarBoard> {
                   width: 10,
                   height: 10,
                   decoration: BoxDecoration(
-                    color: AppColors.leave.resolveFrom(context).withValues(
-                      alpha: .22,
-                    ),
+                    color: AppColors.leave
+                        .resolveFrom(context)
+                        .withValues(alpha: .22),
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -215,14 +217,13 @@ class _CalendarBoardState extends State<CalendarBoard> {
       border = Border.all(color: leave.withValues(alpha: .55), width: 1);
     }
     if (isSelected) {
-      background = accent;
-      foreground = CupertinoTheme.of(context).primaryContrastingColor;
+      background = isMarked ? leave : accent;
+      foreground = isMarked
+          ? CupertinoColors.white
+          : CupertinoTheme.of(context).primaryContrastingColor;
       border = null;
-    } else if (isToday) {
-      border = Border.all(
-        color: accent.withValues(alpha: .8),
-        width: 1.2,
-      );
+    } else if (isToday && !isMarked) {
+      border = Border.all(color: accent.withValues(alpha: .8), width: 1.2);
     }
 
     final cell = Container(
@@ -300,7 +301,8 @@ Future<String?> showCalendarSheet(
   );
 }
 
-Widget _footer(  BuildContext context, {
+Widget _footer(
+  BuildContext context, {
   required String confirmLabel,
   required VoidCallback onCancel,
   required VoidCallback? onConfirm,
@@ -366,17 +368,12 @@ Future<(String, String)?> showRangeSheet(
         title: title,
         subtitle:
             subtitle ??
-            (start == null || end != null
-                ? '点选开始日期'
-                : '开始 ${start!}，请点选结束日期'),
+            (start == null || end != null ? '点选开始日期' : '开始 ${start!}，请点选结束日期'),
         child: CalendarBoard(
           initialMonth: parseDay(start) ?? parseDay(end),
           rangeFrom: start,
           rangeTo: end,
-          selected: {
-            if (start != null) start!,
-            if (end != null) end!,
-          },
+          selected: {if (start != null) start!, if (end != null) end!},
           onDayTap: (day) {
             update(() {
               if (expectingStart || start == null) {

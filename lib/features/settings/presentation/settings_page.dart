@@ -10,10 +10,13 @@ import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/sheet.dart';
 import '../../../core/widgets/licenses_screen.dart';
 import '../../../core/config/bucket_address.dart';
+import '../../../core/storage/cos_storage.dart';
+import '../../../core/result/app_result.dart';
 import '../../leave/presentation/leave_page.dart';
 import '../../notice/presentation/notice_panel.dart';
 import '../../stats/domain/attendance_score.dart';
 import '../../stats/presentation/score_rules_page.dart';
+import '../../update/presentation/update_settings.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.store, this.section});
@@ -94,6 +97,28 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> probe() async => guarded(context, () async {
+    if (provider == 'COS') {
+      final id = await secure.read(key: 'storage_id') ?? '';
+      final key = await secure.read(key: 'storage_key') ?? '';
+      final storage = CosObjectStorage.fromSettings(store.settings, id, key);
+      if (storage == null) {
+        if (!mounted) return;
+        await message(context, '未配置服务地址', '请先填写 COS 存储桶直链。');
+        return;
+      }
+      final result = await storage.probe();
+      if (!mounted) return;
+      await message(
+        context,
+        result is Success ? 'COS 连接成功' : 'COS 连接失败',
+        result is Success
+            ? ((result as Success<int>).value == 404
+                  ? '签名请求已通过，但桶内尚未创建 index.json。'
+                  : '已完成签名请求，存储桶可访问。')
+            : (result as Failure).message,
+      );
+      return;
+    }
     final uri = Uri.tryParse(
       nativeCloud
           ? BucketAddress.configuredUrl(store.settings, provider)
@@ -140,7 +165,6 @@ class _SettingsPageState extends State<SettingsPage> {
               '本地身份',
               detail: store.identity.isEmpty ? '设置登记时使用的显示名' : store.identity,
               icon: CupertinoIcons.person_crop_circle,
-              tint: AppColors.navy,
               onTap: () => openSection('本地身份'),
             ),
             _row(
@@ -148,7 +172,6 @@ class _SettingsPageState extends State<SettingsPage> {
               '人员名单',
               detail: '${store.activePeople.length} 名启用人员',
               icon: CupertinoIcons.person_2,
-              tint: AppColors.success,
               onTap: people,
             ),
             _row(
@@ -158,7 +181,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   '${store.leavesOn(businessDay()).length} 人今日请假 · '
                   '共 ${store.liveLeaves.length} 条',
               icon: CupertinoIcons.calendar_badge_minus,
-              tint: AppColors.leave,
               onTap: () => Navigator.of(context).push(
                 CupertinoPageRoute<void>(
                   builder: (_) => LeavePage(store: store),
@@ -170,7 +192,6 @@ class _SettingsPageState extends State<SettingsPage> {
               '考勤扣分规则',
               detail: scoreRulesOf(store).summary,
               icon: CupertinoIcons.chart_bar_alt_fill,
-              tint: AppColors.navy,
               onTap: () => openScoreRules(context, store),
             ),
           ]),
@@ -180,7 +201,6 @@ class _SettingsPageState extends State<SettingsPage> {
               '外观',
               detail: themeLabel,
               icon: CupertinoIcons.paintbrush,
-              tint: const Color(0xFF7B61C9),
               onTap: () => openSection('外观'),
             ),
             _row(
@@ -188,7 +208,6 @@ class _SettingsPageState extends State<SettingsPage> {
               '通知',
               detail: store.notices['lastResult']?.toString() ?? '尚未检查通知',
               icon: CupertinoIcons.bell,
-              tint: AppColors.warning,
               onTap: () => openSection('通知'),
             ),
             _row(
@@ -196,28 +215,24 @@ class _SettingsPageState extends State<SettingsPage> {
               '对象存储',
               detail: provider,
               icon: CupertinoIcons.cloud,
-              tint: const Color(0xFF2B8A9E),
               onTap: () => openSection('对象存储'),
             ),
             _row(
               context,
               '时间',
               icon: CupertinoIcons.clock,
-              tint: const Color(0xFFB5651D),
               onTap: () => openSection('时间'),
             ),
             _row(
               context,
               '自动更新',
               icon: CupertinoIcons.arrow_down_circle,
-              tint: AppColors.success,
               onTap: () => openSection('自动更新'),
             ),
             _row(
               context,
               '数据导出',
               icon: CupertinoIcons.square_arrow_up,
-              tint: const Color(0xFF3A6EA5),
               onTap: () => openSection('数据导出'),
             ),
           ]),
@@ -227,11 +242,11 @@ class _SettingsPageState extends State<SettingsPage> {
               '关于',
               detail: '青鸾考勤 1.0.0',
               icon: CupertinoIcons.info_circle,
-              tint: AppColors.muted,
               onTap: () => openSection('关于'),
             ),
           ]),
-        ],        if (widget.section == '本地身份')
+        ],
+        if (widget.section == '本地身份')
           _group('本地身份', [
             SettingRow(
               '显示名',
@@ -321,35 +336,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const SettingRow('当前时间来源', detail: '本地回退 · 网络校时尚未启用'),
           ]),
-        if (widget.section == '自动更新')
-          _group('自动更新', [
-            for (final source in ['Gitee', 'GitHub', '自建服务'])
-              SettingRow(
-                '$source 更新地址',
-                detail: store.settings['update_$source'] ?? '未配置',
-                onTap: () => edit('update_$source', '$source 更新地址', url: true),
-              ),
-            SettingRow(
-              '启动时检查（服务启用后生效）',
-              detail: 'Gitee 优先，GitHub 备用',
-              trailing: CupertinoSwitch(
-                value: store.settings['autoUpdate'] == true,
-                onChanged: (v) {
-                  store.settings['autoUpdate'] = v;
-                  store.persist();
-                },
-              ),
-            ),
-            SettingRow(
-              '检查更新',
-              detail: '当前仅保存更新源配置',
-              onTap: () => message(
-                context,
-                '更新服务待接入',
-                '更新源配置已保存在本机。当前版本暂未启用版本检查、下载与安装。',
-              ),
-            ),
-          ]),
+        if (widget.section == '自动更新') UpdateSettingsSection(store: store),
         if (widget.section == '通知')
           _group('通知', [
             SettingRow(
@@ -406,11 +393,17 @@ class _SettingsPageState extends State<SettingsPage> {
               '主题',
               detail: themeLabel,
               onTap: () async {
-                final value = await choose(context, '外观模式', {
-                  'system': '跟随系统',
-                  'light': '浅色',
-                  'dark': '深色',
-                });
+                final value = await choose(
+                  context,
+                  '外观模式',
+                  {'system': '跟随系统', 'light': '浅色', 'dark': '深色'},
+                  selected: {store.settings['theme']?.toString() ?? 'system'},
+                  icons: {
+                    'system': CupertinoIcons.circle_lefthalf_fill,
+                    'light': CupertinoIcons.sun_max,
+                    'dark': CupertinoIcons.moon,
+                  },
+                );
                 if (value == null || !context.mounted) return;
                 await guarded(context, () async {
                   store.settings['theme'] = value;
@@ -422,10 +415,18 @@ class _SettingsPageState extends State<SettingsPage> {
               '首页卡片',
               detail: homeCardLabel,
               onTap: () async {
-                final value = await choose(context, '首页卡片', {
-                  'sync': '当前同步状态',
-                  'today': '今日登记人数',
-                });
+                final value = await choose(
+                  context,
+                  '首页卡片',
+                  {'sync': '待上传变更', 'today': '今日登记人数'},
+                  selected: {
+                    store.settings['homeCard'] == 'sync' ? 'sync' : 'today',
+                  },
+                  icons: {
+                    'sync': CupertinoIcons.cloud_upload,
+                    'today': CupertinoIcons.person_2,
+                  },
+                );
                 if (value != null) {
                   store.settings['homeCard'] = value;
                   await store.persist();
@@ -445,40 +446,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 },
               ),
             ),
-            const Text(
-              '关闭毛玻璃后，底部导航栏与页面顶部的圆形按钮都会变为不透明纯色，'
-              '系统开启“减弱动态效果”或无障碍导航时也会自动降级。',
-              style: TextStyle(fontSize: 12),
-            ),
-            GlassCard(
-              navigation: true,
-              radius: 18,
-              child: Row(
-                children: [
-                  Text(
-                    'Aa',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: CupertinoColors.label.resolveFrom(context),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      '青鸾考勤 · 外观预览',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: CupertinoColors.secondaryLabel.resolveFrom(
-                          context,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+          ]),
+        if (widget.section == '外观')
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              '关闭毛玻璃后，导航栏和圆形按钮使用不透明背景，停止实时模糊。系统要求减少动态效果时也会自动关闭。',
+              style: AppType.footnoteStyle.copyWith(
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
               ),
             ),
-          ]),
+          ),
         if (widget.section == '数据导出')
           _group('数据导出', [
             const Text('可导出 SQLite、Excel 或 CSV。移动端会打开系统分享面板。'),
@@ -520,7 +498,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _ => '跟随系统',
   };
   String get homeCardLabel =>
-      store.settings['homeCard'] == 'today' ? '今日登记人数' : '当前同步状态';
+      store.settings['homeCard'] == 'sync' ? '待上传变更' : '今日登记人数';
   Future<void> exportData(String kind) async {
     final box = context.findRenderObject() as RenderBox?;
     final origin = box == null
@@ -577,10 +555,12 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void openSection(String section) => Navigator.of(context).push(    CupertinoPageRoute<void>(
+  void openSection(String section) => Navigator.of(context).push(
+    CupertinoPageRoute<void>(
       builder: (_) => SettingsPage(store: store, section: section),
     ),
   );
+
   /// Grouped card with an iOS-style header label and inset dividers.
   Widget _group(String title, List<Widget> children, {double? inset}) =>
       Padding(
@@ -589,21 +569,17 @@ class _SettingsPageState extends State<SettingsPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             GroupLabel(title),
-            SettingsGroup(
-              dividerInset: inset ?? Gap.md,
-              children: children,
-            ),
+            SettingsGroup(dividerInset: inset ?? Gap.md, children: children),
           ],
         ),
       );
 
-  /// Row with a tinted leading glyph, matching Apple's grouped settings lists.
+  /// Neutral leading glyphs keep emphasis on the settings labels.
   Widget _row(
     BuildContext context,
     String title, {
     String detail = '',
     required IconData icon,
-    required Color tint,
     VoidCallback? onTap,
     Widget? trailing,
   }) => SettingRow(
@@ -611,12 +587,13 @@ class _SettingsPageState extends State<SettingsPage> {
     detail: detail,
     leading: IconBadge(
       icon: icon,
-      tint: CupertinoDynamicColor.resolve(tint, context),
+      tint: CupertinoColors.secondaryLabel.resolveFrom(context),
     ),
     onTap: onTap,
     trailing: trailing,
   );
 }
+
 class PeoplePage extends StatelessWidget {
   const PeoplePage({super.key, required this.store});
   final Workspace store;
@@ -783,7 +760,8 @@ class PeoplePage extends StatelessWidget {
             const EmptyState(
               icon: CupertinoIcons.person_2,
               title: '还没有人员',
-              message: '手动新增，或从 Excel / CSV 导入名单。'
+              message:
+                  '手动新增，或从 Excel / CSV 导入名单。'
                   '文件首行需包含“姓名”列，可选性别与工号列。',
             ),
           ...store.visiblePeople.map(
@@ -863,10 +841,7 @@ class _PeopleBatchPageState extends State<PeopleBatchPage> {
               ),
             ),
             Expanded(
-              child: PrimaryButton(
-                onPressed: edit,
-                child: const Text('编辑'),
-              ),
+              child: PrimaryButton(onPressed: edit, child: const Text('编辑')),
             ),
           ],
         ),

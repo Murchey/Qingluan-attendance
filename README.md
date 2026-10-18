@@ -17,7 +17,8 @@ Android 优先的 Flutter / Cupertino 考勤客户端。支持离线登记、请
 - **通知**：启动 / 回前台时请求 `index.json`，仅当管理员通知（`note.md`）或开发者通知（`dev-note.md`）版本变化时才下载正文，并在自研底部面板渲染 Markdown；已读版本与最近检查结果写入本地；可在设置里关闭自动检查。
 - **管理员通知发布**：内置「今日考勤情况」「调休计划」模板，生成 `note.md` 内容进入待上传队列，本地预览；签名上传接入后自动写入存储桶。
 - **自研底部面板**：统一的圆角可滚动面板，承载选项、输入、日历与 Markdown 通知；圆形玻璃按钮、磨砂导航栏与「毛玻璃效果」开关（关闭后导航栏与浮动按钮改为不透明，不再实时模糊）。
-- 深色模式使用 `#101010` 纯色背景，主题色为设计文档要求的藏青色：填充按钮统一深藏青 `#172A46`，深色模式下文字与描边取浅藏青 `#A8C2E0`；只在主要操作与选中态出现；顶部标题栏为渐变磨砂（模糊 + 页面色蒙版 + 纵向 alpha 渐变），内容滚动时从标题下柔和淡出。
+- 深色模式使用 `#101010` 纯色背景，主要按钮使用蓝色 `#2864E8`，深色链接取 `#709CFF`；设置与管理入口使用中性灰图标，蓝色保留给主要操作与选中态；顶部标题栏为渐变磨砂（模糊 + 页面色蒙版 + 纵向 alpha 渐变），内容滚动时从标题下柔和淡出。
+- **应用更新**：默认读取 Murchey 的 Gitee / GitHub 青鸾考勤 Release；同版本优先 Gitee，GitHub 默认勾选代理下载，可编辑三条代理并切换默认项。底部更新面板默认 arm64-v8a，可切换三种 ABI，展示 Markdown 更新说明、进度、取消与失败重试；下载完成后调用 Android 安装器。支持大小与 APK 格式校验，附件提供 SHA-256 时校验摘要。
 - SQLite 持久化人员、记录、请假、通知状态和待上传标记，首次启动无示例业务数据。
 
 ## 尚待业务适配器接入
@@ -25,7 +26,6 @@ Android 优先的 Flutter / Cupertino 考勤客户端。支持离线登记、请
 - OSS / COS / S3 签名鉴权与上传（含通知 `note.md` / `index.json` 的写入）、远端 manifest、分片快照上传下载和同步重试。
 - 账号注册与管理、设备令牌与预签名 URL（见 `developDocs/云同步与服务端设计.md`）。
 - 互联网北京时间请求。目前使用本地时钟计算东八区日期，并显示本地回退状态。
-- GitHub / Gitee / 自建服务的实际版本检查、下载、校验与安装。目前保存更新源配置并展示待接入说明。
 - 当前 SQLite 使用 schema v1 的工作区快照表服务 UI，尚未实现按日 SQLite 文件分片、加密及正式迁移。
 - Flutter Windows runner 可用于界面开发预览；独立 Electron 客户端尚未创建。
 
@@ -42,6 +42,9 @@ flutter run -d windows
 flutter analyze
 flutter test
 flutter build apk --debug
+
+# ADB 真机界面验收，使用内存测试数据，不写入业务工作区
+flutter drive --driver=test_driver/ui_review.dart --target=integration_test/ui_device_test.dart -d <设备序列号>
 
 # 界面检查用演示数据（人员 / 记录 / 请假 / 通知），默认关闭
 flutter build apk --debug --dart-define=DEMO_SEED=true

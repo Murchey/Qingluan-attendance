@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import '../data/workspace.dart';
+import '../platform/soft_keyboard.dart';
 import 'app_widgets.dart';
 import 'sheet.dart';
 import '../theme/app_theme.dart';
@@ -114,17 +115,28 @@ class _InputPanelState extends State<_InputPanel> {
   @override
   void initState() {
     super.initState();
+    // Android can suppress the IME when it thinks a hardware keyboard is
+    // attached. Re-assert the keyboard whenever this field gains focus, and
+    // again from onTap, so a focused panel is always typeable.
+    focusNode.addListener(_syncSoftKeyboard);
     // Mount the text field only after the sheet has settled. Its `autofocus`
     // then opens the IME exactly once, instead of racing the entrance
     // animation (the keyboard inset arriving mid-slide was what made the sheet
     // jump). A same-size placeholder keeps the layout from shifting meanwhile.
     Future<void>.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) setState(() => ready = true);
+      if (!mounted) return;
+      setState(() => ready = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _syncSoftKeyboard());
     });
+  }
+
+  void _syncSoftKeyboard() {
+    if (focusNode.hasFocus) showSoftKeyboard();
   }
 
   @override
   void dispose() {
+    focusNode.removeListener(_syncSoftKeyboard);
     focusNode.dispose();
     super.dispose();
   }
@@ -161,57 +173,68 @@ class _InputPanelState extends State<_InputPanel> {
           if (!ready)
             _fieldPlaceholder(context)
           else
-          CupertinoTextField(
-            controller: widget.controller,
-            focusNode: focusNode,
-            autofocus: true,
-            obscureText: obscured,
-            enableSuggestions: !widget.secret,
-            autocorrect: !widget.secret,
-            minLines: widget.maxLines > 1 ? widget.maxLines : 1,
-            maxLines: widget.maxLines,
-            keyboardType: widget.keyboardType,
-            placeholder: widget.hint ?? '请输入',
-            textInputAction: widget.maxLines > 1
-                ? TextInputAction.newline
-                : TextInputAction.done,
-            style: AppType.rowTitle,
-            padding: const EdgeInsets.fromLTRB(Gap.sm + 2, Gap.sm + 2, 6, Gap.sm + 2),
-            decoration: BoxDecoration(
-              color: AppColors.raised.resolveFrom(context),
-              borderRadius: BorderRadius.circular(Radii.field),
-            ),
-            suffix: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.secret)
-                  CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
-                    onPressed: () => setState(() => obscured = !obscured),
-                    child: Icon(
-                      obscured ? CupertinoIcons.eye : CupertinoIcons.eye_slash,
-                      size: Sizes.icon,
+            CupertinoTextField(
+              controller: widget.controller,
+              focusNode: focusNode,
+              autofocus: true,
+              obscureText: obscured,
+              enableSuggestions: !widget.secret,
+              autocorrect: !widget.secret,
+              minLines: widget.maxLines > 1 ? widget.maxLines : 1,
+              maxLines: widget.maxLines,
+              keyboardType: widget.keyboardType,
+              onTap: () => showSoftKeyboard(),
+              placeholder: widget.hint ?? '请输入',
+              textInputAction: widget.maxLines > 1
+                  ? TextInputAction.newline
+                  : TextInputAction.done,
+              style: AppType.rowTitle,
+              padding: const EdgeInsets.fromLTRB(
+                Gap.sm + 2,
+                Gap.sm + 2,
+                6,
+                Gap.sm + 2,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.raised.resolveFrom(context),
+                borderRadius: BorderRadius.circular(Radii.field),
+              ),
+              suffix: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.secret)
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+                      onPressed: () => setState(() => obscured = !obscured),
+                      child: Icon(
+                        obscured
+                            ? CupertinoIcons.eye
+                            : CupertinoIcons.eye_slash,
+                        size: Sizes.icon,
+                      ),
                     ),
-                  ),
-                if (widget.copyable)
-                  CupertinoButton(
-                    padding: const EdgeInsets.only(right: Gap.xs, left: Gap.xxs),
-                    onPressed: () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: widget.controller.text),
-                      );
-                      if (mounted) setState(() => copied = true);
-                    },
-                    child: Icon(
-                      copied
-                          ? CupertinoIcons.checkmark
-                          : CupertinoIcons.doc_on_doc,
-                      size: Sizes.icon,
+                  if (widget.copyable)
+                    CupertinoButton(
+                      padding: const EdgeInsets.only(
+                        right: Gap.xs,
+                        left: Gap.xxs,
+                      ),
+                      onPressed: () async {
+                        await Clipboard.setData(
+                          ClipboardData(text: widget.controller.text),
+                        );
+                        if (mounted) setState(() => copied = true);
+                      },
+                      child: Icon(
+                        copied
+                            ? CupertinoIcons.checkmark
+                            : CupertinoIcons.doc_on_doc,
+                        size: Sizes.icon,
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
           if (widget.copyable)
             Padding(
               padding: const EdgeInsets.only(top: Gap.xs, left: 2),
@@ -234,11 +257,7 @@ class _InputPanelState extends State<_InputPanel> {
               ),
             ),
           ),
-          Container(
-            width: .5,
-            height: 34,
-            color: separatorOf(context),
-          ),
+          Container(width: .5, height: 34, color: separatorOf(context)),
           Expanded(
             child: CupertinoButton(
               padding: EdgeInsets.zero,
@@ -259,6 +278,7 @@ class _InputPanelState extends State<_InputPanel> {
     );
   }
 }
+
 Future<void> guarded(
   BuildContext context,
   Future<void> Function() action,
@@ -352,7 +372,8 @@ class Screen extends StatelessWidget {
               ),
             ),
           ],
-        );      },
+        );
+      },
     );
   }
 }
@@ -375,8 +396,7 @@ class ScreenHeader extends StatelessWidget {
   final bool compact;
   final List<Widget> actions;
 
-  static double heightFor(bool compact) =>
-      compact ? Sizes.row + Gap.xs : 92;
+  static double heightFor(bool compact) => compact ? 64 : 78;
 
   @override
   Widget build(BuildContext context) {
@@ -488,10 +508,7 @@ class SettingRow extends StatelessWidget {
         constraints: const BoxConstraints(minHeight: Sizes.row - 3),
         child: Row(
           children: [
-            if (leading != null) ...[
-              leading!,
-              const SizedBox(width: Gap.sm),
-            ],
+            if (leading != null) ...[leading!, const SizedBox(width: Gap.sm)],
             Expanded(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -533,6 +550,7 @@ class SettingRow extends StatelessWidget {
     );
   }
 }
+
 class EntryTile extends StatelessWidget {
   const EntryTile({
     super.key,

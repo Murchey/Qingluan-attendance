@@ -47,8 +47,11 @@ dependencies:
   sqlite3: 2.9.4
   flutter_localizations:
     sdk: flutter
+  crypto: ^3.0.7
 
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
 

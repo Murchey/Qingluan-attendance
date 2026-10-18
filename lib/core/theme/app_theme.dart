@@ -1,34 +1,31 @@
 import 'package:flutter/cupertino.dart';
 
-/// Neutral-first palette. The accent is the documented navy (藏青), reserved for
-/// primary actions and selected states; icons and secondary controls stay on
-/// label greys so the interface reads like an admin tool.
+/// Neutral surfaces with blue reserved for primary actions and selection.
 abstract final class AppColors {
-  /// 藏青 accent from the design brief; a lighter navy on dark surfaces so the
-  /// fill still reads as navy instead of a saturated stock blue.
+  /// The legacy name remains for existing callers.
   static const navy = CupertinoDynamicColor.withBrightness(
-    color: Color(0xFF172A46),
-    darkColor: Color(0xFFA8C2E0),
+    color: Color(0xFF2864E8),
+    darkColor: Color(0xFF709CFF),
   );
 
   /// Semantic alias.
   static const accent = navy;
 
   static const background = CupertinoDynamicColor.withBrightness(
-    color: Color(0xFFF4F5F7),
+    color: Color(0xFFF5F6F8),
     darkColor: Color(0xFF101010),
   );
   static const surface = CupertinoDynamicColor.withBrightness(
     color: Color(0xFFFFFFFF),
-    darkColor: Color(0xFF1B1B1E),
+    darkColor: Color(0xFF1C1C1E),
   );
   static const sheet = CupertinoDynamicColor.withBrightness(
     color: Color(0xFFFFFFFF),
-    darkColor: Color(0xFF18181A),
+    darkColor: Color(0xFF202022),
   );
   static const raised = CupertinoDynamicColor.withBrightness(
     color: Color(0xFFF0F1F4),
-    darkColor: Color(0xFF232327),
+    darkColor: Color(0xFF29292C),
   );
 
   static const success = CupertinoDynamicColor.withBrightness(
@@ -61,8 +58,6 @@ abstract final class AppTheme {
   /// increased contrast resolve consistently on every page and modal.
   static const system = CupertinoThemeData(
     primaryColor: AppColors.navy,
-    // On dark surfaces the navy accent becomes a light steel blue, so filled
-    // controls need dark text to stay legible.
     primaryContrastingColor: CupertinoDynamicColor.withBrightness(
       color: CupertinoColors.white,
       darkColor: Color(0xFF101010),

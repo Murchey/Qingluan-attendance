@@ -10,6 +10,7 @@ import '../../notice/presentation/notice_panel.dart';
 import '../../records/presentation/records_page.dart';
 import '../../sync/presentation/sync_page.dart';
 import '../../settings/presentation/settings_page.dart';
+import '../../update/presentation/update_panel.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.store, this.noticeSource});
@@ -35,9 +36,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.initState();
     SchedulerBinding.instance.addTimingsCallback(_frameTimings);
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _autoSync(initial: true),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await _autoSync(initial: true);
+      } finally {
+        // Notice sync can fail or be skipped; the update check still runs on
+        // every cold start, after the first frame has settled.
+        if (mounted) await _checkUpdates();
+      }
+    });
+  }
+
+  Future<void> _checkUpdates() async {
+    if (!mounted || !widget.store.persistent) return;
+    if (widget.store.settings['autoUpdate'] == false) return;
+    await checkForUpdates(context, widget.store, automatic: true);
   }
 
   void _frameTimings(List<FrameTiming> timings) {
@@ -98,9 +111,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   ];
   final activeIcons = const [
     CupertinoIcons.house_fill,
-    CupertinoIcons.rectangle_stack_fill,
+    CupertinoIcons.list_bullet,
     CupertinoIcons.cloud_fill,
-    CupertinoIcons.gear_solid,
+    CupertinoIcons.gear,
   ];
 
   void select(int i) {
@@ -263,18 +276,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 children: [
                   Icon(
                     selected ? activeIcons[i] : icons[i],
-                    size: selected ? 22 : 21,
+                    size: 22,
                     color: color,
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
                     labels[i],
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 11,
                       color: color,
-                      fontWeight: selected
-                          ? FontWeight.w600
-                          : FontWeight.w500,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                     ),
                   ),
                 ],

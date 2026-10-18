@@ -1,5 +1,12 @@
 import 'package:flutter/cupertino.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../core/config/bucket_address.dart';
 import '../../../core/data/workspace.dart';
+import '../../../core/storage/cos_storage.dart';
+import '../../../core/storage/object_storage.dart';
+import '../../../core/result/app_result.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/ui.dart';
@@ -29,7 +36,11 @@ class SyncStatusSummary {
 SyncStatusSummary syncSummary(Workspace store) {
   final conflicts = store.remoteEntries.map((e) => e.day).toSet().length;
   final pending = store.pendingDays.length;
-  final configured = (store.settings['provider'] ?? '').toString().isNotEmpty;
+  final provider = (store.settings['provider'] ?? '').toString();
+  final configured = provider == 'OSS' || provider == 'COS'
+      ? BucketAddress.configuredUrl(store.settings, provider).isNotEmpty
+      : (store.settings['endpoint'] ?? '').toString().isNotEmpty &&
+            (store.settings['bucket'] ?? '').toString().isNotEmpty;
   if (conflicts > 0) {
     return SyncStatusSummary(
       kind: SyncStatusKind.conflict,
@@ -62,8 +73,8 @@ SyncStatusSummary syncSummary(Workspace store) {
   }
   return const SyncStatusSummary(
     kind: SyncStatusKind.ready,
-    title: '当前已同步',
-    detail: '没有待处理的本地或远端变化',
+    title: '本地数据已保存',
+    detail: '没有待上传变更，云端同步服务尚未启用',
     count: 0,
     icon: CupertinoIcons.checkmark_circle_fill,
     color: AppColors.success,
@@ -80,18 +91,96 @@ class SyncPage extends StatefulWidget {
 
 class _SyncPageState extends State<SyncPage> {
   bool checking = false;
+  bool syncing = false;
   SyncStatusSummary get summary => syncSummary(widget.store);
   Future<void> check() async {
     if (checking) return;
     setState(() => checking = true);
-    await Future<void>.delayed(const Duration(milliseconds: 220));
+    final storage = await _storage();
+    final result = storage == null
+        ? const Failure<int>('请先配置 COS 地址和密钥')
+        : await storage.probe();
     if (!mounted) return;
     setState(() => checking = false);
-    await unavailable();
+    await message(
+      context,
+      result is Success ? 'COS 连接成功' : 'COS 连接失败',
+      result is Success
+          ? ((result as Success<int>).value == 404
+                ? '签名请求已通过，但桶内尚未创建 index.json。'
+                : '签名请求已通过。')
+          : (result as Failure).message,
+    );
   }
 
-  Future<void> unavailable() =>
-      message(context, '同步尚未就绪', '当前版本暂不提供云端上传和下载。请继续离线登记，云端服务启用后可处理待上传记录。');
+  Future<CosObjectStorage?> _storage() async {
+    const secure = FlutterSecureStorage();
+    return CosObjectStorage.fromSettings(
+      widget.store.settings,
+      await secure.read(key: 'storage_id') ?? '',
+      await secure.read(key: 'storage_key') ?? '',
+    );
+  }
+
+  Future<void> sync() async {
+    if (syncing) return;
+    setState(() => syncing = true);
+    try {
+      final storage = await _storage();
+      if (storage == null) throw const FormatException('请先配置 COS 地址和密钥');
+      final remote = await storage.get('data/workspace.json');
+      if (remote is Success<RemoteObject?> &&
+          remote.value != null &&
+          widget.store.pendingDays.isEmpty) {
+        try {
+          final payload = jsonDecode(utf8.decode(remote.value!.bytes));
+          if (payload is Map<String, dynamic>) {
+            await widget.store.loadPayload(payload);
+            widget.store.lastSync = DateTime.now().toUtc().toIso8601String();
+            widget.store.syncMessage = '同步成功';
+            if (mounted) await message(context, '同步成功', '已从腾讯云 COS 下载最新工作区数据。');
+            return;
+          }
+        } on FormatException {
+          // A malformed remote snapshot is reported by the upload path below.
+        }
+      }
+      final payload = utf8.encode(jsonEncode(widget.store.toPayload()));
+      final digest = sha256.convert(payload).toString();
+      final put = await storage.put(
+        'data/workspace.json',
+        payload,
+        sha256: digest,
+      );
+      if (put is Failure) throw Exception(put.message);
+      final index = utf8.encode(
+        jsonEncode({
+          'schema': 1,
+          'data': {
+            'hash': digest,
+            'updatedAt': DateTime.now().toUtc().toIso8601String(),
+          },
+        }),
+      );
+      final indexResult = await storage.put(
+        'index.json',
+        index,
+        sha256: sha256.convert(index).toString(),
+      );
+      if (indexResult is Failure) throw Exception(indexResult.message);
+      widget.store.pendingDays.clear();
+      widget.store.lastSync = DateTime.now().toUtc().toIso8601String();
+      widget.store.syncMessage = '同步成功';
+      await widget.store.persist();
+      if (mounted) await message(context, '同步成功', '本机数据已上传到腾讯云 COS。');
+    } on Object catch (e) {
+      widget.store.syncMessage = '同步失败';
+      if (mounted) await message(context, '同步失败', '$e');
+    } finally {
+      if (mounted) setState(() => syncing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = summary;
@@ -145,7 +234,7 @@ class _SyncPageState extends State<SyncPage> {
           ),
         const SizedBox(height: 18),
         const Text(
-          '当前版本暂未启用云端同步。可继续离线登记，人员、记录与待上传标记在重启后保留。',
+          '已支持腾讯云 COS 签名上传。首次使用请在设置中填写存储桶直链和密钥。',
           style: TextStyle(color: CupertinoColors.secondaryLabel, fontSize: 13),
         ),
       ],
@@ -157,8 +246,7 @@ class _SyncPageState extends State<SyncPage> {
     final tertiary = CupertinoColors.tertiaryLabel.resolveFrom(context);
     final provider = (widget.store.settings['provider'] ?? '未配置').toString();
     final lastSync = widget.store.lastSync ?? '尚未同步';
-    final notice =
-        widget.store.notices['lastResult']?.toString() ?? '尚未检查通知';
+    final notice = widget.store.notices['lastResult']?.toString() ?? '尚未检查通知';
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -253,7 +341,7 @@ class _SyncPageState extends State<SyncPage> {
             children: [
               Expanded(
                 child: PrimaryButton(
-                  onPressed: checking ? null : unavailable,
+                  onPressed: syncing ? null : sync,
                   child: const Text('立即同步'),
                 ),
               ),
@@ -357,7 +445,9 @@ class _SyncPageState extends State<SyncPage> {
       borderRadius: BorderRadius.circular(Radii.control),
       pressedOpacity: .7,
       color: AppColors.raised.resolveFrom(context),
-      disabledColor: AppColors.raised.resolveFrom(context).withValues(alpha: .5),
+      disabledColor: AppColors.raised
+          .resolveFrom(context)
+          .withValues(alpha: .5),
       onPressed: onPressed,
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -407,6 +497,7 @@ class _SyncPageState extends State<SyncPage> {
       ),
     );
   }
+
   Widget _pendingTile(String day) => GlassCard(
     child: SettingRow(
       day,

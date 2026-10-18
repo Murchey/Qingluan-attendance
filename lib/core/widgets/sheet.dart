@@ -18,7 +18,7 @@ Future<T?> showAppSheet<T>(
   context: context,
   barrierDismissible: barrierDismissible,
   barrierLabel: '关闭',
-  barrierColor: const Color(0x99000000),
+  barrierColor: const Color(0x88000000),
   transitionDuration: const Duration(milliseconds: 260),
   // A dialog route only takes focus (and therefore raises the IME) when it
   // explicitly asks for it. Without this the text fields inside the panel get
@@ -36,7 +36,7 @@ Future<T?> showAppSheet<T>(
       opacity: curve,
       child: SlideTransition(
         position: Tween<Offset>(
-          begin: const Offset(0, .06),
+          begin: const Offset(0, 1),
           end: Offset.zero,
         ).animate(curve),
         child: Align(
@@ -63,10 +63,21 @@ class _SheetFrame extends StatelessWidget {
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
-      padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+      padding: EdgeInsets.fromLTRB(
+        8,
+        media.padding.top + 12,
+        8,
+        media.viewInsets.bottom,
+      ),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: media.size.height * maxHeightFactor,
+          maxHeight:
+              (media.size.height -
+                  media.viewInsets.bottom -
+                  media.padding.top -
+                  12) *
+              maxHeightFactor,
+          maxWidth: 640,
         ),
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -100,8 +111,8 @@ class _SheetFrame extends StatelessWidget {
               children: [
                 const SizedBox(height: Gap.xs),
                 Container(
-                  width: 36,
-                  height: 5,
+                  width: 40,
+                  height: 4,
                   decoration: BoxDecoration(
                     color: CupertinoColors.separator
                         .resolveFrom(context)
@@ -191,8 +202,7 @@ class SheetPanel extends StatelessWidget {
               ],
             ),
           ),
-        if (title != null)
-          Container(height: .5, color: separatorOf(context)),
+        if (title != null) Container(height: .5, color: separatorOf(context)),
         Flexible(
           child: GestureDetector(
             // Tapping the panel background dismisses the keyboard without
@@ -260,17 +270,23 @@ Future<T?> showOptionSheet<T>(
             text: cancelLabel,
             onTap: () => Navigator.of(sheetContext).pop(),
           ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < options.length; i++)
-          _OptionRow<T>(
-            option: options[i],
-            divider: i > 0,
-            onTap: () => Navigator.of(sheetContext).pop(options[i].value),
-          ),
-        ?footer,
-      ],
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: ColoredBox(
+        color: AppColors.raised.resolveFrom(sheetContext),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < options.length; i++)
+              _OptionRow<T>(
+                option: options[i],
+                divider: i > 0,
+                onTap: () => Navigator.of(sheetContext).pop(options[i].value),
+              ),
+            ?footer,
+          ],
+        ),
+      ),
     ),
   ),
   maxHeightFactor: maxHeightFactor,
@@ -297,7 +313,7 @@ class _OptionRow<T> extends StatelessWidget {
       children: [
         if (divider)
           Padding(
-            padding: const EdgeInsets.only(left: 36),
+            padding: const EdgeInsets.only(left: 54, right: 16),
             child: Container(height: .5, color: separatorOf(context)),
           ),
         CupertinoButton(
@@ -305,12 +321,15 @@ class _OptionRow<T> extends StatelessWidget {
           pressedOpacity: .55,
           onPressed: option.enabled ? onTap : null,
           child: Container(
-            constraints: const BoxConstraints(minHeight: 56),
-            padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+            constraints: const BoxConstraints(minHeight: 62),
+            padding: const EdgeInsets.symmetric(
+              vertical: Gap.sm,
+              horizontal: Gap.md,
+            ),
             child: Row(
               children: [
                 SizedBox(
-                  width: 36,
+                  width: option.icon == null ? 0 : 38,
                   child: option.icon == null
                       ? const SizedBox.shrink()
                       : Icon(option.icon, size: Sizes.icon, color: secondary),

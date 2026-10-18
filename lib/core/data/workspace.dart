@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:uuid/uuid.dart';
+import '../update/update_config.dart';
 
 String businessDay([DateTime? instant]) => (instant ?? DateTime.now())
     .toUtc()
@@ -170,6 +171,7 @@ class Workspace extends ChangeNotifier {
   static const demoSeed = bool.fromEnvironment('DEMO_SEED');
 
   Database? _db;
+  bool get persistent => _db != null;
   String dataPath = '内存（测试）';
   String identity = '';
   String deviceId = const Uuid().v4();
@@ -179,6 +181,7 @@ class Workspace extends ChangeNotifier {
     'provider': 'COS',
     'autoUpdate': true,
     'glass': true,
+    ...UpdateDefaults.settings,
   };
   final List<Entry> remoteEntries = [];
   final Set<String> pendingDays = {};
@@ -219,8 +222,7 @@ class Workspace extends ChangeNotifier {
   Leave? leaveOf(String personId, String day) => liveLeaves
       .where((l) => l.confirmed && l.personId == personId && l.covers(day))
       .firstOrNull;
-  bool onLeave(String personId, String day) =>
-      leaveOf(personId, day) != null;
+  bool onLeave(String personId, String day) => leaveOf(personId, day) != null;
 
   /// Leaves overlapping the inclusive [from]..[to] range.
   List<Leave> leavesInRange(String from, String to) => liveLeaves
@@ -456,6 +458,7 @@ class Workspace extends ChangeNotifier {
         notices.addAll(Map<String, dynamic>.from(j['notices'] as Map));
       }
     }
+    UpdateDefaults.apply(settings);
     if (demoSeed && people.isEmpty && entries.isEmpty) {
       await _seedDemo();
       await persist();
@@ -587,8 +590,7 @@ class Workspace extends ChangeNotifier {
 ''';
     notices['adminVersion'] = 'demo-admin';
     notices['devTitle'] = '1.0.0 更新说明';
-    notices['devBody'] =
-        '''# 1.0.0 更新说明
+    notices['devBody'] = '''# 1.0.0 更新说明
 
 - 新增请假记录与数据统计
 - 底栏磨砂玻璃与深色配色调整
@@ -601,18 +603,44 @@ class Workspace extends ChangeNotifier {
   Future<void> persist() async {
     await _db?.insert('workspace', {
       'id': 1,
-      'payload': jsonEncode({
-        'identity': identity,
-        'deviceId': deviceId,
-        'people': people.map((p) => p.toJson()).toList(),
-        'entries': entries.map((p) => p.toJson()).toList(),
-        'leaves': leaves.map((l) => l.toJson()).toList(),
-        'notices': notices,
-        'settings': settings,
-        'pendingDays': pendingDays.toList(),
-      }),
+      'payload': jsonEncode(toPayload()),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     notifyListeners();
+  }
+
+  Map<String, dynamic> toPayload() => {
+    'identity': identity,
+    'deviceId': deviceId,
+    'people': people.map((p) => p.toJson()).toList(),
+    'entries': entries.map((p) => p.toJson()).toList(),
+    'leaves': leaves.map((l) => l.toJson()).toList(),
+    'notices': notices,
+    'settings': settings,
+    'pendingDays': pendingDays.toList(),
+  };
+
+  Future<void> loadPayload(Map<String, dynamic> j) async {
+    identity = j['identity']?.toString() ?? identity;
+    deviceId = j['deviceId']?.toString() ?? deviceId;
+    people = ((j['people'] as List?) ?? const [])
+        .map((p) => Person.fromJson(Map<String, dynamic>.from(p as Map)))
+        .toList();
+    entries = ((j['entries'] as List?) ?? const [])
+        .map((p) => Entry.fromJson(Map<String, dynamic>.from(p as Map)))
+        .toList();
+    leaves = ((j['leaves'] as List?) ?? const [])
+        .map((p) => Leave.fromJson(Map<String, dynamic>.from(p as Map)))
+        .toList();
+    if (j['settings'] is Map) {
+      settings.addAll(Map<String, dynamic>.from(j['settings'] as Map));
+    }
+    if (j['notices'] is Map) {
+      notices.addAll(Map<String, dynamic>.from(j['notices'] as Map));
+    }
+    pendingDays
+      ..clear()
+      ..addAll(List<String>.from(j['pendingDays'] ?? const []));
+    await persist();
   }
 
   Future<void> setIdentity(String value) async {

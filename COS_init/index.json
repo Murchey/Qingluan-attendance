@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-18T00:00:00+08:00",
+  "data": {
+    "hash": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "updatedAt": "2026-10-18T00:00:00+08:00",
+    "files": {
+      "data/people.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    }
+  },
+  "adminNote": {
+    "version": "2026-10-18T00:00:00+08:00",
+    "path": "note.md",
+    "hash": "8f2102f584ec21b76f8d6998672ba610f363607ad7de919237c392e22c1bfd5d",
+    "title": "青鸾考勤云端工作区已初始化",
+    "updatedAt": "2026-10-18 00:00"
+  },
+  "devNote": {
+    "version": "1.0.0",
+    "path": "dev-note.md",
+    "hash": "e5ce84290a046a62b4b0ae853a055388d26059daeaf2502f5ab0360a3915db77",
+    "title": "青鸾考勤 1.0.0",
+    "updatedAt": "2026-10-18 00:00"
+  }
+}

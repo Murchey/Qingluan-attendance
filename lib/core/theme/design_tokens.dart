@@ -5,7 +5,7 @@ import 'package:flutter/cupertino.dart';
 /// 13.5/15.5 with no rhythm is what reads as "amateur" even when the colours and
 /// blur are right.
 abstract final class AppType {
-  static const largeTitle = 34.0;
+  static const largeTitle = 30.0;
   static const title1 = 28.0;
   static const title2 = 22.0;
   static const title3 = 20.0;
@@ -19,18 +19,18 @@ abstract final class AppType {
 
   static const pageTitle = TextStyle(
     fontSize: largeTitle,
-    fontWeight: FontWeight.w700,
+    fontWeight: FontWeight.w600,
     letterSpacing: -.4,
     height: 1.15,
   );
   static const navTitle = TextStyle(
-    fontSize: title3,
+    fontSize: headline,
     fontWeight: FontWeight.w600,
     letterSpacing: -.2,
     height: 1.2,
   );
   static const sectionTitle = TextStyle(
-    fontSize: title3,
+    fontSize: headline,
     fontWeight: FontWeight.w600,
     letterSpacing: -.2,
   );
@@ -54,7 +54,10 @@ abstract final class AppType {
     fontWeight: FontWeight.w400,
     height: 1.35,
   );
-  static const button = TextStyle(fontSize: headline, fontWeight: FontWeight.w600);
+  static const button = TextStyle(
+    fontSize: callout,
+    fontWeight: FontWeight.w600,
+  );
   static const sheetTitle = TextStyle(
     fontSize: title3,
     fontWeight: FontWeight.w700,

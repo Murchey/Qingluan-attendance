@@ -83,6 +83,15 @@ class GlassCard extends StatelessWidget {
       decoration: BoxDecoration(
         // Frosted: translucent surface over the blurred content. Opaque mode:
         // plain surface, no blur cost at all.
+        gradient: frosted
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: dark
+                    ? const [Color(0x18FFFFFF), Color(0x00FFFFFF)]
+                    : const [Color(0x88FFFFFF), Color(0x10FFFFFF)],
+              )
+            : null,
         color: frosted
             ? surface.withValues(
                 alpha: dark
@@ -138,14 +147,15 @@ class GlassIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
-    final accent = CupertinoTheme.of(context).primaryColor;
+    final accent = CupertinoColors.label.resolveFrom(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: AppColors.raised.resolveFrom(context).withValues(
-          alpha: dark
-              ? GlassSpec.indicatorDarkOpacity
-              : GlassSpec.indicatorLightOpacity,
-        ),
+        color: (dark ? const Color(0xFF454548) : const Color(0xFFFFFFFF))
+            .withValues(
+              alpha: dark
+                  ? GlassSpec.indicatorDarkOpacity
+                  : GlassSpec.indicatorLightOpacity,
+            ),
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
           color: accent.withValues(
@@ -171,9 +181,7 @@ class GlassIndicator extends StatelessWidget {
   }
 }
 
-/// Circular header control, ported from AiChatApp's glass back button: a small
-/// backdrop blur, a translucent fill and a hairline outline. No drop shadow —
-/// the outline is what makes it read as a piece of glass over scrolling content.
+/// Circular glass control with an edge highlight and a soft exterior shadow.
 class GlassIconButton extends StatelessWidget {
   const GlassIconButton({
     super.key,
@@ -195,20 +203,28 @@ class GlassIconButton extends StatelessWidget {
     final glass = glassEnabledOf(context) && !reduceEffectsOf(context);
     final fill =
         tint ??
-        AppColors.raised.resolveFrom(context).withValues(
-          alpha: glass ? .65 : 1,
-        );
+        AppColors.raised
+            .resolveFrom(context)
+            .withValues(alpha: glass ? .65 : 1);
     final disc = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: fill,
+        gradient: glass
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFFFFFFFF).withValues(alpha: dark ? .08 : .7),
+                  const Color(0x00FFFFFF),
+                ],
+              )
+            : null,
         border: Border.all(
-          color: CupertinoColors.secondaryLabel
-              .resolveFrom(context)
-              .withValues(alpha: dark ? .32 : .25),
-          width: 1,
+          color: const Color(0xFFFFFFFF).withValues(alpha: dark ? .22 : .85),
+          width: .8,
         ),
       ),
       child: CupertinoButton(
@@ -227,22 +243,34 @@ class GlassIconButton extends StatelessWidget {
       child: Semantics(
         button: true,
         label: label,
-        child: ClipOval(
-          child: glass
-              ? BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                  child: disc,
-                )
-              : disc,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: const Color(
+                  0xFF000000,
+                ).withValues(alpha: dark ? .22 : .07),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: ClipOval(
+            child: glass
+                ? BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                    child: disc,
+                  )
+                : disc,
+          ),
         ),
       ),
     );
   }
 }
 
-/// Primary call to action. Filled buttons take the documented navy in both
-/// schemes: on a near-black page the pale accent would read as a washed-out
-/// tinted block instead of a deliberate navy control.
+/// Primary actions use a saturated blue fill with white text in both themes.
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton({
     super.key,
@@ -255,8 +283,7 @@ class PrimaryButton extends StatelessWidget {
   final double borderRadius;
   @override
   Widget build(BuildContext context) {
-    final dark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
-    const navy = Color(0xFF172A46);
+    const navy = Color(0xFF2864E8);
     return CupertinoButton(
       minimumSize: const Size(0, Sizes.cta),
       padding: const EdgeInsets.symmetric(horizontal: Gap.md, vertical: Gap.sm),
@@ -267,7 +294,7 @@ class PrimaryButton extends StatelessWidget {
       onPressed: onPressed,
       child: DefaultTextStyle.merge(
         style: AppType.button.copyWith(
-          color: dark ? const Color(0xFFEAF1F9) : CupertinoColors.white,
+          color: CupertinoColors.white,
           decoration: TextDecoration.none,
         ),
         child: child,
@@ -292,10 +319,14 @@ class IconBadge extends StatelessWidget {
     width: size,
     height: size,
     decoration: BoxDecoration(
-      color: tint.withValues(alpha: .16),
+      color: AppColors.raised.resolveFrom(context),
       borderRadius: BorderRadius.circular(Radii.badge),
     ),
-    child: Icon(icon, size: size * .58, color: tint),
+    child: Icon(
+      icon,
+      size: size * .58,
+      color: CupertinoDynamicColor.resolve(tint, context),
+    ),
   );
 }
 
@@ -395,8 +426,7 @@ class SegmentedControl<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
     final children = [
-      for (var i = 0; i < values.length; i++)
-        _segment(context, i, dark),
+      for (var i = 0; i < values.length; i++) _segment(context, i, dark),
     ];
     return Container(
       padding: const EdgeInsets.all(2),
@@ -430,9 +460,9 @@ class SegmentedControl<T> extends StatelessWidget {
           boxShadow: selected
               ? [
                   BoxShadow(
-                    color: const Color(0xFF000000).withValues(
-                      alpha: dark ? .38 : .10,
-                    ),
+                    color: const Color(
+                      0xFF000000,
+                    ).withValues(alpha: dark ? .38 : .10),
                     blurRadius: 6,
                     offset: const Offset(0, 1),
                   ),
@@ -506,16 +536,21 @@ class EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Gap.lg,
-        vertical: Gap.xl,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: Gap.lg, vertical: Gap.lg),
       child: Column(
         children: [
-          Icon(
-            icon,
-            size: 28,
-            color: CupertinoColors.tertiaryLabel.resolveFrom(context),
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: AppColors.raised.resolveFrom(context),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              icon,
+              size: 24,
+              color: CupertinoColors.secondaryLabel.resolveFrom(context),
+            ),
           ),
           const SizedBox(height: Gap.sm),
           Text(title, style: AppType.rowTitleEmphasized),

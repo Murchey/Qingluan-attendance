@@ -7,6 +7,7 @@ import '../../../core/widgets/ui.dart';
 import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../attendance/presentation/entry_editor.dart';
+import '../../settings/presentation/settings_page.dart';
 import '../../sync/presentation/sync_page.dart';
 
 class RecordsPage extends StatefulWidget {
@@ -435,6 +436,14 @@ class _RecordsPageState extends State<RecordsPage> {
               builder: (_) => SyncPage(
                 store: widget.store,
                 onSettings: () => Navigator.of(context).pop(),
+                onStorageSettings: () => Navigator.of(context).push(
+                  CupertinoPageRoute<void>(
+                    builder: (_) => SettingsPage(
+                      store: widget.store,
+                      section: '对象存储',
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

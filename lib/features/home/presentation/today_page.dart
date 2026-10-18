@@ -13,6 +13,7 @@ import '../../attendance/presentation/entry_editor.dart';
 import '../../leave/presentation/leave_page.dart';
 import '../../notice/presentation/notice_composer.dart';
 import '../../notice/presentation/notice_panel.dart';
+import '../../settings/presentation/cloud_qr_page.dart';
 import '../../stats/presentation/stats_page.dart';
 import '../../sync/presentation/sync_page.dart';
 
@@ -242,6 +243,11 @@ class _TodayPageState extends State<TodayPage> {
     return Screen(
       title: '今日名单',
       actions: [
+        GlassIconButton(
+          icon: CupertinoIcons.qrcode_viewfinder,
+          label: '扫描二维码',
+          onPressed: () => openCloudScanner(context, store),
+        ),
         GlassIconButton(
           icon: CupertinoIcons.bell,
           label: '通知中心',

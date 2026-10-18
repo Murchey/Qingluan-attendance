@@ -135,9 +135,15 @@ String formatSyncTime(String iso) {
 }
 
 class SyncPage extends StatefulWidget {
-  const SyncPage({super.key, required this.store, required this.onSettings});
+  const SyncPage({
+    super.key,
+    required this.store,
+    required this.onSettings,
+    this.onStorageSettings,
+  });
   final Workspace store;
   final VoidCallback onSettings;
+  final VoidCallback? onStorageSettings;
   @override
   State<SyncPage> createState() => _SyncPageState();
 }
@@ -417,7 +423,7 @@ class _SyncPageState extends State<SyncPage> {
                   context,
                   label: '配置存储',
                   icon: CupertinoIcons.cloud,
-                  onTap: widget.onSettings,
+                  onTap: widget.onStorageSettings ?? widget.onSettings,
                 ),
               ),
               const SizedBox(width: Gap.xs),

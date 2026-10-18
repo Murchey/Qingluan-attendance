@@ -263,6 +263,14 @@ class _SettingsPageState extends State<SettingsPage> {
                       builder: (_) => SyncPage(
                         store: store,
                         onSettings: () => Navigator.of(context).pop(),
+                        onStorageSettings: () => Navigator.of(context).push(
+                          CupertinoPageRoute<void>(
+                            builder: (_) => SettingsPage(
+                              store: store,
+                              section: '对象存储',
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),

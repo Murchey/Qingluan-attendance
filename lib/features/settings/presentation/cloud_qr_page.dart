@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -39,6 +40,64 @@ Future<void> showCloudQrPage(BuildContext context, Workspace store) =>
     Navigator.of(
       context,
     ).push(CupertinoPageRoute<void>(builder: (_) => CloudQrPage(store: store)));
+
+/// Opens the camera scanner directly (home shortcut) and imports whatever it
+/// reads. Album import lives inside the scanner page itself.
+Future<void> openCloudScanner(BuildContext context, Workspace store) async {
+  await Navigator.of(context).push(
+    CupertinoPageRoute<void>(
+      builder: (_) => CloudQrScannerPage(
+        onScanned: (raw) => applyCloudQrConfig(store, raw),
+      ),
+    ),
+  );
+  if (!context.mounted) return;
+  final provider = (store.settings['provider'] ?? 'COS').toString();
+  if (BucketAddress.configuredUrl(store.settings, provider).isEmpty) return;
+  await message(
+    context,
+    '配置已导入',
+    '已填入 $provider 存储配置和密钥，可在设置 → 对象存储里做连接测试。',
+  );
+}
+
+/// Applies a scanned config payload. Throws [FormatException] with a readable
+/// reason when the payload is not ours.
+Future<void> applyCloudQrConfig(Workspace store, String raw) async {
+  final decoded = jsonDecode(raw);
+  if (decoded is! Map || decoded['type'] != _qrType) {
+    throw const FormatException('这不是青鸾考勤云存储配置二维码');
+  }
+  final provider = decoded['provider']?.toString() ?? '';
+  if (!{'COS', 'OSS', 'S3'}.contains(provider)) {
+    throw const FormatException('二维码中的存储服务类型无效');
+  }
+  final secrets = <String, String>{
+    'storage_id': decoded['accessKeyId']?.toString() ?? '',
+    'storage_key': decoded['secretAccessKey']?.toString() ?? '',
+    'storage_token': decoded['securityToken']?.toString() ?? '',
+  };
+  store.settings['provider'] = provider;
+  if (provider == 'COS' || provider == 'OSS') {
+    store.settings[BucketAddress.settingKey(provider)] =
+        decoded['url']?.toString() ?? '';
+  } else {
+    store.settings['endpoint'] = decoded['endpoint']?.toString() ?? '';
+    store.settings['bucket'] = decoded['bucket']?.toString() ?? '';
+  }
+  store.settings['autoUpload'] = decoded['autoUpload'] != false;
+  // The address must land even when the keystore is unavailable; keys are the
+  // only part that can be silently lost, and the caller reports that.
+  try {
+    const secure = FlutterSecureStorage();
+    await secure.write(key: 'storage_id', value: secrets['storage_id']);
+    await secure.write(key: 'storage_key', value: secrets['storage_key']);
+    await secure.write(key: 'storage_token', value: secrets['storage_token']);
+  } on Object {
+    // keep the imported address; the keys can be re-entered manually
+  }
+  await store.persist();
+}
 
 class CloudQrPage extends StatefulWidget {
   const CloudQrPage({super.key, required this.store});
@@ -107,34 +166,14 @@ class _CloudQrPageState extends State<CloudQrPage> {
   }
 
   Future<void> _apply(String raw) async {
-    final decoded = jsonDecode(raw);
-    if (decoded is! Map || decoded['type'] != _qrType) {
-      throw const FormatException('这不是青鸾考勤云存储配置二维码');
-    }
-    final provider = decoded['provider']?.toString() ?? '';
-    if (!{'COS', 'OSS', 'S3'}.contains(provider)) {
-      throw const FormatException('二维码中的存储服务类型无效');
-    }
-    final secrets = <String, String>{
-      'storage_id': decoded['accessKeyId']?.toString() ?? '',
-      'storage_key': decoded['secretAccessKey']?.toString() ?? '',
-      'storage_token': decoded['securityToken']?.toString() ?? '',
-    };
-    widget.store.settings['provider'] = provider;
-    if (provider == 'COS' || provider == 'OSS') {
-      widget.store.settings[BucketAddress.settingKey(provider)] =
-          decoded['url']?.toString() ?? '';
-    } else {
-      widget.store.settings['endpoint'] = decoded['endpoint']?.toString() ?? '';
-      widget.store.settings['bucket'] = decoded['bucket']?.toString() ?? '';
-    }
-    widget.store.settings['autoUpload'] = decoded['autoUpload'] != false;
-    await secure.write(key: 'storage_id', value: secrets['storage_id']);
-    await secure.write(key: 'storage_key', value: secrets['storage_key']);
-    await secure.write(key: 'storage_token', value: secrets['storage_token']);
-    await widget.store.persist();
+    await applyCloudQrConfig(widget.store, raw);
+    final provider = (widget.store.settings['provider'] ?? 'COS').toString();
     if (mounted) {
-      await message(context, '配置已导入', '已填入 $provider 存储配置和密钥。请返回设置页进行连接测试。');
+      await message(
+        context,
+        '配置已导入',
+        '已填入 $provider 存储配置和密钥。请返回设置页进行连接测试。',
+      );
     }
   }
 
@@ -191,6 +230,16 @@ class CloudQrScannerPage extends StatefulWidget {
 
 class _CloudQrScannerPageState extends State<CloudQrScannerPage> {
   bool handled = false;
+  bool busy = false;
+  final scanner = MobileScannerController(
+    formats: const [BarcodeFormat.qrCode],
+  );
+
+  @override
+  void dispose() {
+    scanner.dispose();
+    super.dispose();
+  }
 
   Future<void> _onDetect(BarcodeCapture capture) async {
     if (handled) return;
@@ -204,9 +253,44 @@ class _CloudQrScannerPageState extends State<CloudQrScannerPage> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  Future<void> _pickFromAlbum() async {
+    if (handled) return;
+    final image = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (image == null || !mounted) return;
+    setState(() => busy = true);
+    try {
+      final result = await scanner.analyzeImage(image.path);
+      final raw = result?.barcodes
+          .map((barcode) => barcode.rawValue)
+          .whereType<String>()
+          .firstOrNull;
+      if (raw == null || raw.isEmpty) {
+        throw const FormatException('图片中没有识别到二维码');
+      }
+      await _accept(raw);
+    } catch (e) {
+      if (mounted) await message(context, '读取二维码失败', '$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _accept(String raw) async {
+    handled = true;
+    await widget.onScanned(raw);
+    if (mounted) Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) => CupertinoPageScaffold(
-    navigationBar: const CupertinoNavigationBar(middle: Text('扫描二维码')),
+    navigationBar: CupertinoNavigationBar(
+      middle: const Text('扫描二维码'),
+      trailing: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: busy ? null : _pickFromAlbum,
+        child: const Icon(CupertinoIcons.photo_on_rectangle, size: 22),
+      ),
+    ),
     child: Stack(
       fit: StackFit.expand,
       children: [
@@ -225,10 +309,38 @@ class _CloudQrScannerPageState extends State<CloudQrScannerPage> {
           left: Gap.md,
           right: Gap.md,
           bottom: Gap.lg,
-          child: Text(
-            '将二维码放入框内，识别后会自动填入云存储配置',
-            textAlign: TextAlign.center,
-            style: AppType.button.copyWith(color: CupertinoColors.white),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                busy
+                    ? '正在识别相册中的二维码…'
+                    : '将二维码放入框内，识别后自动填入配置',
+                textAlign: TextAlign.center,
+                style: AppType.button.copyWith(color: CupertinoColors.white),
+              ),
+              const SizedBox(height: Gap.sm),
+              CupertinoButton(
+                color: CupertinoColors.systemGrey.withValues(alpha: .55),
+                padding: const EdgeInsets.symmetric(horizontal: Gap.md),
+                onPressed: busy ? null : _pickFromAlbum,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      CupertinoIcons.photo,
+                      size: 18,
+                      color: CupertinoColors.white,
+                    ),
+                    SizedBox(width: 6),
+                    Text(
+                      '从相册选择',
+                      style: TextStyle(color: CupertinoColors.white),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -247,13 +359,38 @@ class CloudQrPreviewPage extends StatefulWidget {
 class _CloudQrPreviewPageState extends State<CloudQrPreviewPage> {
   bool saving = false;
 
+  /// Renders the QR on an opaque white canvas. QrPainter defaults to a
+  /// transparent background, which galleries preview as a solid black square.
+  /// Renders the QR onto an opaque white canvas. QrPainter alone produces a
+  /// transparent image, which gallery apps preview as a solid black square.
   Future<Uint8List?> _bytes() async {
+    const size = 1200.0;
     final painter = QrPainter(
       data: widget.payload,
       version: QrVersions.auto,
       errorCorrectionLevel: QrErrorCorrectLevel.M,
+      eyeStyle: const QrEyeStyle(
+        eyeShape: QrEyeShape.square,
+        color: Color(0xFF000000),
+      ),
+      dataModuleStyle: const QrDataModuleStyle(
+        dataModuleShape: QrDataModuleShape.square,
+        color: Color(0xFF000000),
+      ),
     );
-    final data = await painter.toImageData(1200);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      const Rect.fromLTWH(0, 0, size, size),
+      Paint()..color = const Color(0xFFFFFFFF),
+    );
+    painter.paint(canvas, const Size(size, size));
+    final image = await recorder.endRecording().toImage(
+      size.toInt(),
+      size.toInt(),
+    );
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
     return data?.buffer.asUint8List();
   }
 

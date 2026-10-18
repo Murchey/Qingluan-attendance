@@ -166,6 +166,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         builder: (_) => SyncPage(
                           store: widget.store,
                           onSettings: () => Navigator.of(context).pop(),
+                          onStorageSettings: () => Navigator.of(context).push(
+                            CupertinoPageRoute<void>(
+                              builder: (_) => SettingsPage(
+                                store: widget.store,
+                                section: '对象存储',
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ),

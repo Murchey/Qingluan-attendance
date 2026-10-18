@@ -141,3 +141,10 @@ adb shell ime disable <ime-id> && adb shell ime enable <ime-id> && adb shell ime
 - 请假等单选人员场景统一走 `showPersonPickerSheet`（`lib/core/widgets/person_picker.dart`）：面板顶部带搜索框，按姓名或工号过滤，支持 `disabledIds` 置灰、`selectedId` 回显勾选。考勤批量登记仍用带性别筛选的整页选择器。
 - 设置 → 关于 增加 GitHub / Gitee 仓库两行，链接来自 `UpdateDefaults`，点击打开 `showLinkSheet`（复制链接 / 系统分享）。不引入 url_launcher：企业分发与内网环境里 ACTION_VIEW 经常被 ROM 拦截，复制+分享更稳。
 - 测试：`test/picker_about_test.dart` 覆盖搜索过滤（姓名、工号、无结果）、输入框聚焦后弹出键盘、关于页仓库行与链接面板。
+## 二维码与同步深链（本轮）
+
+- 首页右上角改为直接打开相机扫描页（`openCloudScanner`），扫描页导航栏右上角与底部都有「从相册选择」，选图后走 `MobileScannerController.analyzeImage`，识别成功即导入并返回。
+- 导入逻辑抽成顶层 `applyCloudQrConfig(store, raw)`：校验 `type`/`provider`，写入 settings 与安全存储；安全存储不可用时只丢密钥、不阻断导入（便于测试与部分 ROM）。
+- 「配置存储」此前只调用 `onSettings`（回设置首页），现已通过 `onStorageSettings` 深链到 `SettingsPage(section: '对象存储')`，三处调用点（shell、设置页、记录页）都已补齐。
+- **保存到相册是纯黑图**：`QrPainter.toImageData` 默认透明背景，相册缩略图把透明合成成黑色。现在改用 `PictureRecorder` 先画白色底再 `painter.paint`，导出 1200×1200 PNG（`ui.ImageByteFormat.png`），真机拉取确认白底黑码。
+- 注意：设备上已安装包 versionCode 是 2001，而 `pubspec.yaml` 仍是 `1.0.0+1`，安装需要 `adb install -r -d`；发版前应把版本号补到 ≥2001。

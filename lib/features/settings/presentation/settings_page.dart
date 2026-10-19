@@ -23,6 +23,7 @@ import '../../stats/presentation/score_rules_page.dart';
 import '../../update/presentation/update_settings.dart';
 import '../../sync/presentation/sync_page.dart';
 import 'cloud_qr_page.dart';
+import 'import_people_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({
@@ -338,7 +339,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _row(
               context,
               '关于',
-              detail: '青鸾考勤 1.0.0',
+              detail: '青鸾考勤 1.0.2',
               icon: CupertinoIcons.info_circle,
               onTap: () => openSection('关于'),
             ),
@@ -635,7 +636,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ]),
         if (widget.section == '关于')
           _group('关于', [
-            const SettingRow('青鸾考勤', detail: '1.0.0 · 本地优先'),
+            const SettingRow('青鸾考勤', detail: '1.0.2 · 本地优先'),
             SettingRow(
               'GitHub 仓库',
               detail: 'Murchey/Qingluan-attendance · 源码与 Release',
@@ -852,54 +853,6 @@ class PeoplePage extends StatelessWidget {
     });
   }
 
-  Future<void> import(BuildContext context) async => guarded(context, () async {
-    final preview = await pickPeople(store);
-    if (preview == null || !context.mounted) return;
-    final accepted = await Navigator.of(context).push<bool>(
-      CupertinoPageRoute(
-        builder: (c) => CupertinoPageScaffold(
-          child: Screen(
-            title: '新增 ${preview.names.length} 人',
-            children: [
-              const Text('仅新增名单，不覆盖现有人名、考勤和停用状态。同名与缺失姓名行将跳过。'),
-              ...preview.issues.map(
-                (s) => Text(
-                  s,
-                  style: const TextStyle(color: CupertinoColors.systemOrange),
-                ),
-              ),
-              ...preview.names.map((s) => SettingRow(s)),
-              PrimaryButton(
-                onPressed: preview.names.isEmpty
-                    ? null
-                    : () => Navigator.pop(c, true),
-                child: const Text('确认导入'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (accepted == true) {
-      if (!context.mounted) return;
-      final hasDuplicates = preview.issues.any((s) => s.contains('重名'));
-      if (hasDuplicates) {
-        final choice = await choose(context, '发现重复人员', {
-          'copy': '作为副本保存（自动追加数字）',
-          'skip': '不保存重复项',
-        });
-        if (!context.mounted) return;
-        if (choice != 'copy') return;
-      }
-      for (final name in preview.names) {
-        await store.savePerson(
-          name,
-          gender: preview.gender[name] ?? '',
-          employeeId: preview.employeeIds[name] ?? '',
-        );
-      }
-    }
-  });
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: store,
@@ -923,7 +876,11 @@ class PeoplePage extends StatelessWidget {
                 ),
                 color: AppColors.raised.resolveFrom(context),
                 borderRadius: BorderRadius.circular(Radii.control),
-                onPressed: () => import(context),
+                onPressed: () => Navigator.of(context).push(
+                  CupertinoPageRoute<void>(
+                    builder: (_) => ImportPeoplePage(store: store),
+                  ),
+                ),
                 child: Text(
                   '导入',
                   style: AppType.button.copyWith(
@@ -955,7 +912,7 @@ class PeoplePage extends StatelessWidget {
               title: '还没有人员',
               message:
                   '手动新增，或从 Excel / CSV 导入名单。'
-                  '文件首行需包含“姓名”列，可选性别与工号列。',
+                  '导入页可先下载 Excel 模板；文件首行需包含「姓名」列，可选性别与工号。',
             ),
           ...store.visiblePeople.map(
             (p) => Padding(

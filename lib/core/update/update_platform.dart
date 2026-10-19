@@ -5,12 +5,12 @@ abstract final class UpdatePlatform {
   static const channel = MethodChannel('qingluan/update');
   static Future<String> version() async {
     if (!Platform.isAndroid) {
-      return const String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0');
+      return const String.fromEnvironment('APP_VERSION', defaultValue: '1.0.2');
     }
     try {
-      return await channel.invokeMethod<String>('version') ?? '1.0.0';
+      return await channel.invokeMethod<String>('version') ?? '1.0.2';
     } on MissingPluginException {
-      return '1.0.0';
+      return '1.0.2';
     }
   }
 

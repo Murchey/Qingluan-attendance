@@ -649,8 +649,8 @@ class Workspace extends ChangeNotifier {
 *演示数据，仅用于界面检查。*
 ''';
     notices['adminVersion'] = 'demo-admin';
-    notices['devTitle'] = '1.0.0 更新说明';
-    notices['devBody'] = '''# 1.0.0 更新说明
+    notices['devTitle'] = '1.0.2 更新说明';
+    notices['devBody'] = '''# 1.0.2 更新说明
 
 - 新增请假记录与数据统计
 - 底栏磨砂玻璃与深色配色调整

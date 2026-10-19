@@ -5,7 +5,7 @@ library;
 /// Bump when the privacy policy changes materially: the onboarding gate asks
 /// again when the accepted version is older than this one.
 const String kPolicyVersion = '2026-10-18';
-const String kAppVersion = '1.0.0';
+const String kAppVersion = '1.0.2';
 const String kContactEmail = 'murchey@126.com';
 
 const String kPrivacySummary =

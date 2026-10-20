@@ -89,7 +89,7 @@ class _UpdatePanelState extends State<UpdatePanel> {
   late final target = widget.catalog.latest!;
   late final mirrors = widget.catalog.mirrors(target.version);
   late String source = mirrors.containsKey('Gitee') ? 'Gitee' : target.source;
-  String architecture = 'arm64-v8a';
+  late String architecture = _defaultArchitecture(mirrors[source]);
   late bool useProxy = widget.store.settings['updateUseProxy'] != false;
   bool busy = false;
   int received = 0, total = -1;
@@ -97,6 +97,13 @@ class _UpdatePanelState extends State<UpdatePanel> {
   File? downloaded;
   final downloader = ApkDownloader();
   ReleaseAsset? get asset => mirrors[source]?.assets[architecture];
+
+  String _defaultArchitecture(AppRelease? release) {
+    for (final abi in UpdateDefaults.architectures) {
+      if (release?.assets.containsKey(abi) == true) return abi;
+    }
+    return UpdateDefaults.architectures.first;
+  }
 
   @override
   void dispose() {
@@ -129,6 +136,7 @@ class _UpdatePanelState extends State<UpdatePanel> {
     if (value != null && mounted) {
       setState(() {
         source = value;
+        architecture = _defaultArchitecture(mirrors[value]);
         downloaded = null;
         error = '';
       });

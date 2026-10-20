@@ -6,6 +6,7 @@ import 'core/data/workspace.dart';
 import 'core/storage/cos_storage.dart';
 import 'core/storage/object_storage.dart';
 import 'core/sync/sync_service.dart';
+import 'core/widgets/app_widgets.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,10 +79,10 @@ class _BootstrapState extends State<Bootstrap> {
       ? QingLuanApp(store: store!)
       : CupertinoApp(
           home: CupertinoPageScaffold(
-            child: Center(
-              child: error == null
-                  ? const CupertinoActivityIndicator()
-                  : Column(
+            child: error == null
+                ? const SyncSkeletonPage()
+                : Center(
+                    child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(error!),
@@ -91,7 +92,7 @@ class _BootstrapState extends State<Bootstrap> {
                         ),
                       ],
                     ),
-            ),
+                  ),
           ),
         );
 }

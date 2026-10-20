@@ -566,3 +566,105 @@ class EmptyState extends StatelessWidget {
     );
   }
 }
+
+/// Lightweight shimmer placeholders used while local data and the first cloud
+/// refresh are still being prepared. The animation is a single moving gradient
+/// so the loading state stays cheap on older devices.
+class SyncSkeletonPage extends StatefulWidget {
+  const SyncSkeletonPage({super.key});
+
+  @override
+  State<SyncSkeletonPage> createState() => _SyncSkeletonPageState();
+}
+
+class _SyncSkeletonPageState extends State<SyncSkeletonPage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _controller,
+    builder: (context, _) => CupertinoPageScaffold(
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(Gap.md, Gap.lg, Gap.md, 120),
+          children: [
+            Text('正在同步', style: AppType.pageTitle),
+            Text(
+              '正在准备数据，请稍候…',
+              style: AppType.footnoteStyle.copyWith(
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+              ),
+            ),
+            const SizedBox(height: Gap.md),
+            _skeletonBlock(context, height: 118, radius: Radii.card),
+            const SizedBox(height: Gap.md),
+            Row(
+              children: [
+                Expanded(child: _skeletonBlock(context, height: 74)),
+                const SizedBox(width: Gap.sm),
+                Expanded(child: _skeletonBlock(context, height: 74)),
+              ],
+            ),
+            const SizedBox(height: Gap.md),
+            for (var i = 0; i < 5; i++) ...[
+              _skeletonBlock(context, height: 58, radius: Radii.control),
+              if (i < 4) const SizedBox(height: Gap.xs),
+            ],
+            const SizedBox(height: Gap.lg),
+            Center(
+              child: CupertinoActivityIndicator(
+                radius: 12,
+                color: CupertinoColors.secondaryLabel.resolveFrom(context),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _skeletonBlock(
+    BuildContext context, {
+    required double height,
+    double radius = Radii.control,
+  }) {
+    final dark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    final t = _controller.value;
+    final left = -1.2 + t * 2.4;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFF242428) : const Color(0xFFE9E9EE),
+        ),
+        child: FractionallySizedBox(
+          widthFactor: .72,
+          alignment: Alignment(left, 0),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0x00FFFFFF),
+                  (dark ? const Color(0xFFFFFFFF) : const Color(0xFFFFFFFF))
+                      .withValues(alpha: dark ? .08 : .65),
+                  const Color(0x00FFFFFF),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

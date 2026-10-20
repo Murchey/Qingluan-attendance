@@ -33,6 +33,11 @@ class ApkDownloader {
     }
     final part = File('${root.path}/${asset.name}.part');
     final target = File('${root.path}/${asset.name}');
+    await _cleanup(root, keep: asset.name);
+    if (await target.exists()) {
+      if (await _isValidCached(target, asset)) return target;
+      await target.delete();
+    }
     IOSink? sink;
     final client = _client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 15);
@@ -105,5 +110,43 @@ class ApkDownloader {
       client.close(force: true);
       _client = null;
     }
+  }
+
+  Future<void> _cleanup(Directory root, {required String keep}) async {
+    final cutoff = DateTime.now().subtract(const Duration(days: 7));
+    await for (final entity in root.list()) {
+      if (entity is! File || entity.path.endsWith(keep)) continue;
+      final name = entity.uri.pathSegments.last;
+      if (!name.endsWith('.apk') && !name.endsWith('.part')) {
+        continue;
+      }
+      try {
+        if (name.endsWith('.part') ||
+            (await entity.lastModified()).isBefore(cutoff)) {
+          await entity.delete();
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<bool> _isValidCached(File file, ReleaseAsset asset) async {
+    if (asset.size > 0 && await file.length() != asset.size) return false;
+    final header = await file.open();
+    final magic = await header.read(4);
+    await header.close();
+    if (magic.length != 4 ||
+        magic[0] != 0x50 ||
+        magic[1] != 0x4b ||
+        magic[2] != 3 ||
+        magic[3] != 4) {
+      return false;
+    }
+    if (asset.sha256 != null) {
+      final digest = await sha256.bind(file.openRead()).first;
+      if (digest.toString().toLowerCase() != asset.sha256!.toLowerCase()) {
+        return false;
+      }
+    }
+    return true;
   }
 }

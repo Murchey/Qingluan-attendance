@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
@@ -26,10 +27,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int index = 0;
   int? pressed;
   bool slowDevice = false;
+  bool _initializing = true;
+  bool _syncing = false;
   int measuredFrames = 0, slowFrames = 0;
-  DateTime? _leftForegroundAt;
   bool _checking = false;
-  static const resumeSyncGap = Duration(hours: 1);
+  DateTime? _lastDataSyncAt;
+  Future<void>? _dataSyncInFlight;
+  static const syncThrottle = Duration(minutes: 2);
 
   @override
   void initState() {
@@ -38,8 +42,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
-        await _autoSync(initial: true);
+        await _autoSync();
       } finally {
+        if (mounted) setState(() => _initializing = false);
         // Notice sync can fail or be skipped; the update check still runs on
         // every cold start, after the first frame has settled.
         if (mounted) await _checkUpdates();
@@ -69,14 +74,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   /// One sync per cold start; after backgrounding, only when the app has been
   /// away longer than an hour, so request counts stay low.
-  Future<void> _autoSync({bool initial = false}) async {
+  Future<void> _autoSync() async {
     if (_checking) return;
-    if (!initial && widget.store.settings['autoSync'] == false) return;
+    if (widget.store.settings['autoSync'] == false) return;
     _checking = true;
     try {
-      // Pending local edits are pushed before the notice check so both stay in
-      // one retry window; failures keep the queue for the next attempt.
-      await widget.store.sync?.upload();
+      // A normal launch/resume round is a full pull-to-refresh: pending local
+      // edits are pushed first, then the manifest and all changed business
+      // shards (including people.json) are pulled. This keeps a second phone's
+      // roster and attendance current without requiring the user to open Sync.
+      await _requestDataSync(initial: true);
       final result = await syncNotices(
         widget.store,
         source: widget.noticeSource,
@@ -91,16 +98,37 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      final left = _leftForegroundAt;
-      _leftForegroundAt = null;
-      if (left != null && DateTime.now().difference(left) >= resumeSyncGap) {
-        _autoSync();
-      }
-      return;
+      unawaited(_requestDataSync());
     }
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
-      _leftForegroundAt ??= DateTime.now();
+  }
+
+  Future<void> _requestDataSync({bool initial = false, bool manual = false}) {
+    if (!manual && widget.store.settings['autoSync'] == false) {
+      return Future<void>.value();
+    }
+    final active = _dataSyncInFlight;
+    if (active != null) return active;
+    final last = _lastDataSyncAt;
+    if (!initial &&
+        last != null &&
+        DateTime.now().difference(last) < syncThrottle) {
+      return Future<void>.value();
+    }
+    final future = _performDataSync(initial: initial);
+    _dataSyncInFlight = future;
+    return future.whenComplete(() => _dataSyncInFlight = null);
+  }
+
+  Future<void> _performDataSync({required bool initial}) async {
+    if (!initial && mounted) setState(() => _syncing = true);
+    try {
+      final outcome = await widget.store.sync?.refresh();
+      if (outcome != null && !outcome.ok) {
+        widget.store.syncMessage = outcome.message;
+      }
+      _lastDataSyncAt = DateTime.now();
+    } finally {
+      if (!initial && mounted) setState(() => _syncing = false);
     }
   }
 
@@ -145,64 +173,69 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           child: Stack(
             children: [
               const Positioned.fill(child: GlassBackdrop()),
-              PageView(
-                controller: controller,
-                // The roster uses horizontal gestures (swipe to mark absent or
-                // leave), so tabs switch only from the capsule.
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (i) => setState(() => index = i),
-                children: [
-                  TodayPage(
-                    store: widget.store,
-                    onSync: () => select(2),
-                    onSettings: () => select(2),
-                    onRecords: () => select(1),
-                  ),
-                  RecordsPage(store: widget.store),
-                  SettingsPage(
-                    store: widget.store,
-                    onSync: () => Navigator.of(context).push(
-                      CupertinoPageRoute<void>(
-                        builder: (_) => SyncPage(
+              _initializing || _syncing
+                  ? const Positioned.fill(child: SyncSkeletonPage())
+                  : PageView(
+                      controller: controller,
+                      // The roster uses horizontal gestures (swipe to mark absent or
+                      // leave), so tabs switch only from the capsule.
+                      physics: const NeverScrollableScrollPhysics(),
+                      onPageChanged: (i) => setState(() => index = i),
+                      children: [
+                        TodayPage(
                           store: widget.store,
-                          onSettings: () => Navigator.of(context).pop(),
-                          onStorageSettings: () => Navigator.of(context).push(
+                          onRefresh: () => _requestDataSync(manual: true),
+                          onSync: () => select(2),
+                          onSettings: () => select(2),
+                          onRecords: () => select(1),
+                        ),
+                        RecordsPage(store: widget.store),
+                        SettingsPage(
+                          store: widget.store,
+                          onSync: () => Navigator.of(context).push(
                             CupertinoPageRoute<void>(
-                              builder: (_) => SettingsPage(
+                              builder: (_) => SyncPage(
                                 store: widget.store,
-                                section: '对象存储',
+                                onSettings: () => Navigator.of(context).pop(),
+                                onStorageSettings: () =>
+                                    Navigator.of(context).push(
+                                      CupertinoPageRoute<void>(
+                                        builder: (_) => SettingsPage(
+                                          store: widget.store,
+                                          section: '对象存储',
+                                        ),
+                                      ),
+                                    ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
               // Keep the capsule mounted while the keyboard is open: hiding it
               // on an inset change made the layout jump behind modal panels.
-              Positioned(
-                left: GlassSpec.navInset,
-                right: GlassSpec.navInset,
-                bottom:
-                    MediaQuery.paddingOf(context).bottom +
-                    GlassSpec.navBottomGap,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 480),
-                    child: GlassCard(
-                      navigation: true,
-                      radius: GlassSpec.navHeight / 2,
-                      padding: const EdgeInsets.all(GlassSpec.indicatorInset),
-                      child: SizedBox(
-                        height: GlassSpec.navHeight - 8,
-                        child: _navigation(),
+              if (!_initializing)
+                Positioned(
+                  left: GlassSpec.navInset,
+                  right: GlassSpec.navInset,
+                  bottom:
+                      MediaQuery.paddingOf(context).bottom +
+                      GlassSpec.navBottomGap,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: GlassCard(
+                        navigation: true,
+                        radius: GlassSpec.navHeight / 2,
+                        padding: const EdgeInsets.all(GlassSpec.indicatorInset),
+                        child: SizedBox(
+                          height: GlassSpec.navHeight - 8,
+                          child: _navigation(),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),

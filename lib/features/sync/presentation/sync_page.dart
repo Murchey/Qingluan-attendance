@@ -86,41 +86,145 @@ class CollaborationStatusBar extends StatelessWidget {
     super.key,
     required this.store,
     required this.onTap,
+    this.onConfigure,
   });
   final Workspace store;
   final VoidCallback onTap;
+  final VoidCallback? onConfigure;
 
   @override
   Widget build(BuildContext context) {
-    final summary = syncSummary(store);
+    final failed = store.sync?.phase == SyncPhase.failed;
+    final uploading = store.sync?.phase == SyncPhase.uploading;
+    final unconfigured = store.sync?.phase == SyncPhase.unconfigured;
+    final pending = store.pendingDays.length;
     final remote = store.remoteEntries.length;
-    final label = remote > 0
-        ? '同事刚修改了 $remote 条记录 · 查看协作状态'
-        : summary.kind == SyncStatusKind.ready
-        ? summary.detail
-        : '${summary.title} · 查看协作状态';
-    return CupertinoButton(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      onPressed: onTap,
+
+    final danger = AppColors.danger.resolveFrom(context);
+    final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
+    final success = AppColors.success.resolveFrom(context);
+
+    late final String label;
+    late final Color color;
+    late final IconData icon;
+    if (failed) {
+      label = '同步失败，点击重试';
+      color = danger;
+      icon = CupertinoIcons.exclamationmark_circle;
+    } else if (uploading) {
+      label = '正在同步…';
+      color = secondary;
+      icon = CupertinoIcons.arrow_2_circlepath;
+    } else if (unconfigured) {
+      label = '离线使用中，数据保存在本机';
+      color = secondary;
+      icon = CupertinoIcons.cloud;
+    } else if (pending > 0) {
+      label = '$pending 项待上传，点击重试';
+      color = AppColors.warning.resolveFrom(context);
+      icon = CupertinoIcons.arrow_up_circle;
+    } else if (remote > 0) {
+      label = '另一台设备修改了 $remote 条记录 · 查看';
+      color = AppColors.warning.resolveFrom(context);
+      icon = CupertinoIcons.person_2;
+    } else if (store.lastSync != null) {
+      final at = DateTime.tryParse(store.lastSync!)?.toLocal();
+      if (at == null) {
+        label = '已同步';
+      } else {
+        String two(int v) => v.toString().padLeft(2, '0');
+        final today = DateTime.now();
+        final sameDay =
+            at.year == today.year &&
+            at.month == today.month &&
+            at.day == today.day;
+        final stamp = sameDay
+            ? '${two(at.hour)}:${two(at.minute)}'
+            : '${at.month}月${at.day}日 ${two(at.hour)}:${two(at.minute)}';
+        label = '已于 $stamp 同步';
+      }
+      color = success;
+      icon = CupertinoIcons.checkmark_circle;
+    } else {
+      label = '数据保存在本机，点击查看同步状态';
+      color = secondary;
+      icon = CupertinoIcons.cloud;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: Gap.xs),
+      padding: const EdgeInsets.only(left: Gap.sm, right: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .1),
+        borderRadius: BorderRadius.circular(Radii.control),
+      ),
       child: Row(
         children: [
-          Icon(summary.icon, size: 15, color: summary.color),
+          Icon(icon, size: 15, color: color),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppType.caption.copyWith(color: summary.color),
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              minimumSize: const Size(0, 36),
+              onPressed: onTap,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.caption.copyWith(color: color),
+                ),
+              ),
             ),
           ),
-          Icon(
-            CupertinoIcons.chevron_right,
-            size: 12,
-            color: CupertinoColors.tertiaryLabel.resolveFrom(context),
-          ),
+          if (failed || pending > 0)
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+              minimumSize: const Size(0, 36),
+              onPressed: () => retrySync(context, store),
+              child: Text(
+                '重试',
+                style: AppType.caption.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else if (unconfigured && onConfigure != null)
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: Gap.xs),
+              minimumSize: const Size(0, 36),
+              onPressed: onConfigure,
+              child: Text(
+                '去配置',
+                style: AppType.caption.copyWith(
+                  color: CupertinoColors.label.resolveFrom(context),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
         ],
       ),
+    );
+  }
+}
+
+/// Manual retry used by the home status bar: pushes the pending queue and
+/// reports the result inline, so a failed upload is never a silent dead end.
+Future<void> retrySync(BuildContext context, Workspace store) async {
+  final sync = store.sync;
+  if (sync == null) {
+    await message(context, '同步服务未启动', '请重新打开应用后再试。');
+    return;
+  }
+  final ok = await sync.upload(manual: true);
+  if (!context.mounted) return;
+  if (!ok) {
+    await message(
+      context,
+      '同步失败',
+      sync.message.isEmpty ? '请检查网络与储存桶配置后重试。' : sync.message,
     );
   }
 }
@@ -157,17 +261,17 @@ class _SyncPageState extends State<SyncPage> {
     setState(() => checking = true);
     final storage = await _storage();
     final result = storage == null
-        ? const Failure<int>('请先配置 COS 地址和密钥')
+        ? const Failure<int>('还没有配置储存桶地址和密钥')
         : await storage.probe();
     if (!mounted) return;
     setState(() => checking = false);
     await message(
       context,
-      result is Success ? 'COS 连接成功' : 'COS 连接失败',
+      result is Success ? '储存桶连接正常' : '储存桶连接失败',
       result is Success
           ? ((result as Success<int>).value == 404
-                ? '签名请求已通过，但桶内尚未创建 index.json。'
-                : '签名请求已通过。')
+                ? '签名请求已通过，桶内还没有 index.json。首次同步会自动创建。'
+                : '签名请求已通过，可以开始同步。')
           : (result as Failure).message,
     );
   }
@@ -204,19 +308,13 @@ class _SyncPageState extends State<SyncPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (syncing) return const SyncSkeletonPage();
     final s = summary;
     final pending = widget.store.pendingDays.toList()..sort();
     final conflictDays =
         widget.store.remoteEntries.map((e) => e.day).toSet().toList()..sort();
     return Screen(
       title: '同步中心',
-      actions: [
-        GlassIconButton(
-          icon: CupertinoIcons.gear,
-          label: '同步设置',
-          onPressed: widget.onSettings,
-        ),
-      ],
       children: [
         _statusCard(context, s),
         const SizedBox(height: 24),
@@ -395,33 +493,17 @@ class _SyncPageState extends State<SyncPage> {
             ],
           ),
           const SizedBox(height: Gap.md),
-          Row(
-            children: [
-              Expanded(
-                child: PrimaryButton(
-                  onPressed: syncing ? null : sync,
-                  child: const Text('立即同步'),
-                ),
-              ),
-              const SizedBox(width: Gap.xs),
-              Expanded(
-                child: _tonalButton(
-                  context,
-                  label: checking ? '检查中…' : '立即检查',
-                  icon: CupertinoIcons.refresh,
-                  busy: checking,
-                  onPressed: checking ? null : check,
-                ),
-              ),
-            ],
+          PrimaryButton(
+            onPressed: syncing ? null : sync,
+            child: const Text('立即同步'),
           ),
-          const SizedBox(height: Gap.sm),
+          const SizedBox(height: Gap.xs),
           Row(
             children: [
               Expanded(
                 child: _toolTile(
                   context,
-                  label: '配置存储',
+                  label: '配置储存桶',
                   icon: CupertinoIcons.cloud,
                   onTap: widget.onStorageSettings ?? widget.onSettings,
                 ),
@@ -430,16 +512,26 @@ class _SyncPageState extends State<SyncPage> {
               Expanded(
                 child: _toolTile(
                   context,
-                  label: '更新与通知',
-                  icon: CupertinoIcons.bell,
-                  onTap: () => refreshNotices(
-                    context,
-                    widget.store,
-                    quietWhenIdle: true,
-                  ),
+                  label: checking ? '测试中…' : '测试连接',
+                  icon: CupertinoIcons.wifi,
+                  onTap: checking ? null : check,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: Gap.xs),
+          Center(
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              onPressed: () =>
+                  refreshNotices(context, widget.store, quietWhenIdle: true),
+              child: Text(
+                '检查通知与更新',
+                style: AppType.caption.copyWith(
+                  color: CupertinoColors.secondaryLabel.resolveFrom(context),
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -486,46 +578,11 @@ class _SyncPageState extends State<SyncPage> {
     color: separatorOf(context),
   );
 
-  Widget _tonalButton(
-    BuildContext context, {
-    required String label,
-    required IconData icon,
-    required bool busy,
-    VoidCallback? onPressed,
-  }) {
-    final disabled = onPressed == null;
-    final color = disabled
-        ? CupertinoColors.tertiaryLabel.resolveFrom(context)
-        : CupertinoColors.label.resolveFrom(context);
-    return CupertinoButton(
-      minimumSize: const Size(0, Sizes.cta),
-      padding: EdgeInsets.zero,
-      borderRadius: BorderRadius.circular(Radii.control),
-      pressedOpacity: .7,
-      color: AppColors.raised.resolveFrom(context),
-      disabledColor: AppColors.raised
-          .resolveFrom(context)
-          .withValues(alpha: .5),
-      onPressed: onPressed,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (busy)
-            CupertinoActivityIndicator(radius: 8, color: color)
-          else
-            Icon(icon, size: Sizes.iconSmall, color: color),
-          const SizedBox(width: 6),
-          Text(label, style: AppType.button.copyWith(color: color)),
-        ],
-      ),
-    );
-  }
-
   Widget _toolTile(
     BuildContext context, {
     required String label,
     required IconData icon,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
   }) {
     final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
     return CupertinoButton(

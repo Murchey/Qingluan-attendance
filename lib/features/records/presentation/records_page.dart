@@ -21,6 +21,46 @@ class _RecordsPageState extends State<RecordsPage> {
   String query = '', person = '', status = '', author = '';
   String datePreset = '全部';
   String? syncNote;
+  final selectedIds = <String>{};
+
+  bool get selectionMode => selectedIds.isNotEmpty;
+
+  void toggleSelection(Entry entry) {
+    setState(() {
+      if (!selectedIds.add(entry.id)) {
+        selectedIds.remove(entry.id);
+      }
+    });
+  }
+
+  void clearSelection() => setState(selectedIds.clear);
+
+  void selectAll(List<Entry> rows) => setState(() {
+    final ids = rows.map((e) => e.id).toSet();
+    if (ids.isNotEmpty && ids.every(selectedIds.contains)) {
+      selectedIds.removeAll(ids);
+    } else {
+      selectedIds.addAll(ids);
+    }
+  });
+
+  Future<void> deleteSelected(List<Entry> rows) async {
+    final selected = rows.where((e) => selectedIds.contains(e.id)).toList();
+    if (selected.isEmpty) return;
+    await guarded(context, () async {
+      if (!await confirm(
+        context,
+        '删除选中的 ${selected.length} 条记录？',
+        '会保留删除标记和审计历史，并在后续同步。',
+      )) {
+        return;
+      }
+      for (final entry in selected) {
+        await widget.store.deleteEntry(entry);
+      }
+      if (mounted) clearSelection();
+    });
+  }
 
   /// Pull-to-refresh: push pending edits, then pull the cloud copy when the
   /// local side has nothing unsaved.
@@ -402,10 +442,16 @@ class _RecordsPageState extends State<RecordsPage> {
     final filtersOn = active + (from == null ? 0 : 1);
     final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
     return Screen(
-      title: '历史记录',
+      title: selectionMode ? '已选择 ${selectedIds.length} 条' : '历史记录',
       sidebarCount: 3,
       onRefresh: refresh,
       actions: [
+        if (selectionMode)
+          GlassIconButton(
+            icon: CupertinoIcons.xmark,
+            label: '退出多选',
+            onPressed: clearSelection,
+          ),
         GlassIconButton(
           icon: CupertinoIcons.square_arrow_up,
           label: '导出 Excel',
@@ -413,6 +459,37 @@ class _RecordsPageState extends State<RecordsPage> {
         ),
       ],
       children: [
+        if (selectionMode)
+          Row(
+            children: [
+              Expanded(
+                child: CupertinoButton(
+                  padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+                  alignment: Alignment.centerLeft,
+                  onPressed: () => selectAll(rows),
+                  child: Text(
+                    rows.isNotEmpty &&
+                            rows.every(
+                              (entry) => selectedIds.contains(entry.id),
+                            )
+                        ? '取消全选'
+                        : '全选当前结果',
+                    style: AppType.footnoteStyle.copyWith(
+                      color: CupertinoTheme.of(context).primaryColor,
+                    ),
+                  ),
+                ),
+              ),
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(vertical: Gap.xs),
+                onPressed: () => deleteSelected(rows),
+                child: const Text(
+                  '批量删除',
+                  style: TextStyle(color: CupertinoColors.destructiveRed),
+                ),
+              ),
+            ],
+          ),
         Row(
           children: [
             Expanded(
@@ -438,10 +515,8 @@ class _RecordsPageState extends State<RecordsPage> {
                 onSettings: () => Navigator.of(context).pop(),
                 onStorageSettings: () => Navigator.of(context).push(
                   CupertinoPageRoute<void>(
-                    builder: (_) => SettingsPage(
-                      store: widget.store,
-                      section: '对象存储',
-                    ),
+                    builder: (_) =>
+                        SettingsPage(store: widget.store, section: '对象存储'),
                   ),
                 ),
               ),
@@ -521,6 +596,9 @@ class _RecordsPageState extends State<RecordsPage> {
               entry: e,
               onOpen: () => detail(e),
               onEdit: (field) => editField(e, field),
+              selectionMode: selectionMode,
+              selected: selectedIds.contains(e.id),
+              onToggle: () => toggleSelection(e),
             ),
           ),
         ],
@@ -551,11 +629,17 @@ class _RecordTableRow extends StatelessWidget {
     required this.entry,
     required this.onOpen,
     required this.onEdit,
+    required this.selectionMode,
+    required this.selected,
+    required this.onToggle,
   });
   final Workspace store;
   final Entry entry;
   final VoidCallback onOpen;
   final ValueChanged<String> onEdit;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onToggle;
 
   Widget cell(BuildContext context, String field, String text, double width) =>
       SizedBox(
@@ -576,48 +660,96 @@ class _RecordTableRow extends StatelessWidget {
       );
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: Gap.xxs),
-    child: GlassCard(
-      padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 2),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 108,
-            child: CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
-              alignment: Alignment.centerLeft,
-              onPressed: onOpen,
-              child: Text(
-                store.name(entry.personId),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.rowTitle,
-              ),
+  Widget build(BuildContext context) {
+    if (selectionMode) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: Gap.xxs),
+        child: GestureDetector(
+          onTap: onToggle,
+          onLongPress: onToggle,
+          child: GlassCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Gap.sm,
+              vertical: 10,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  selected
+                      ? CupertinoIcons.checkmark_circle_fill
+                      : CupertinoIcons.circle,
+                  color: selected
+                      ? CupertinoTheme.of(context).primaryColor
+                      : CupertinoColors.tertiaryLabel.resolveFrom(context),
+                ),
+                const SizedBox(width: Gap.sm),
+                Expanded(
+                  child: Text(
+                    '${store.name(entry.personId)}  ${entry.day}\n${entry.fields['status'] ?? ''} · ${entry.fields['note'] ?? ''}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
-          cell(context, 'in', entry.fields['in'] ?? '', 64),
-          cell(context, 'out', entry.fields['out'] ?? '', 64),
-          cell(context, 'status', entry.fields['status'] ?? '', 72),
-          Expanded(
-            child: CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 10),
-              alignment: Alignment.centerLeft,
-              onPressed: onOpen,
-              child: Text(
-                '${entry.author}\n${prettyHistory(entry.updatedAt)}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.caption.copyWith(
-                  color: CupertinoColors.secondaryLabel.resolveFrom(context),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Gap.xxs),
+      child: GestureDetector(
+        onLongPress: onToggle,
+        child: GlassCard(
+          padding: const EdgeInsets.symmetric(horizontal: Gap.sm, vertical: 2),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 108,
+                child: CupertinoButton(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 10,
+                  ),
+                  alignment: Alignment.centerLeft,
+                  onPressed: onOpen,
+                  child: Text(
+                    store.name(entry.personId),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.rowTitle,
+                  ),
                 ),
               ),
-            ),
+              cell(context, 'in', entry.fields['in'] ?? '', 64),
+              cell(context, 'out', entry.fields['out'] ?? '', 64),
+              cell(context, 'status', entry.fields['status'] ?? '', 72),
+              Expanded(
+                child: CupertinoButton(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 10,
+                  ),
+                  alignment: Alignment.centerLeft,
+                  onPressed: onOpen,
+                  child: Text(
+                    '${entry.author}\n${prettyHistory(entry.updatedAt)}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.caption.copyWith(
+                      color: CupertinoColors.secondaryLabel.resolveFrom(
+                        context,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// `2026-10-18T03:25:52.167Z · 管理员 · 保存登记` → readable local time.

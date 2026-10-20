@@ -97,6 +97,9 @@ class SyncService extends ChangeNotifier {
       }
 
       final now = DateTime.now().toUtc().toIso8601String();
+      // A person deleted on another device must not be resurrected by this
+      // device's next upload, so remote tombstones are folded in first.
+      await _absorbRemoteDeletions(storage);
       final files = _shardedFiles(store, now: now);
       final fileHashes = <String, String>{};
       uploadedBytes = 0;
@@ -275,11 +278,34 @@ class SyncService extends ChangeNotifier {
   static Map<String, dynamic> _cloudPayload(Workspace store) =>
       _project(store.toPayload());
 
+  /// People are uploaded as live records only; deletions travel as light
+  /// tombstones (`id`, `name`, `deletedAt`) so another device cannot resurrect
+  /// them. Tombstones older than [tombstoneDays] are dropped from the cloud.
+  static const int tombstoneDays = 30;
+
   static Map<String, List<int>> _shardedFiles(
     Workspace store, {
     required String now,
   }) {
-    final people = store.people.map((p) => p.toJson()).toList();
+    final live = <Map<String, dynamic>>[];
+    final tombstones = <Map<String, dynamic>>[];
+    final cutoff = DateTime.now().toUtc().subtract(
+      const Duration(days: tombstoneDays),
+    );
+    for (final person in store.people) {
+      if (!person.deleted) {
+        live.add(person.toJson());
+        continue;
+      }
+      final deletedAt = DateTime.tryParse(person.deletedAt);
+      if (deletedAt != null && deletedAt.isBefore(cutoff)) continue;
+      tombstones.add({
+        'id': person.id,
+        'name': person.name,
+        // Legacy tombstones have no stamp; give them one so they age out too.
+        'deletedAt': person.deletedAt.isEmpty ? now : person.deletedAt,
+      });
+    }
     final entriesByDay = <String, List<Map<String, dynamic>>>{};
     for (final entry in store.entries) {
       entriesByDay.putIfAbsent(entry.day, () => []).add(entry.toJson());
@@ -302,7 +328,12 @@ class SyncService extends ChangeNotifier {
 
     final result = <String, List<int>>{
       ObjectLayout.people: utf8.encode(
-        jsonEncode({'schema': 1, 'updatedAt': now, 'people': people}),
+        jsonEncode({
+          'schema': 1,
+          'updatedAt': now,
+          'people': live,
+          if (tombstones.isNotEmpty) 'deleted': tombstones,
+        }),
       ),
     };
     for (final day in entriesByDay.keys) {
@@ -330,12 +361,78 @@ class SyncService extends ChangeNotifier {
     return result;
   }
 
+  /// Folds tombstones already present in the bucket into the local workspace
+  /// before an upload, so a device that has not pulled yet cannot re-add a
+  /// person another device deleted. Handles both the current `deleted` array
+  /// and old shards that still carried `people` with `deleted: true`.
+  Future<void> _absorbRemoteDeletions(ObjectStorage storage) async {
+    final result = await storage.get(ObjectLayout.people);
+    if (result is! Success<RemoteObject?> || result.value == null) return;
+    Map<String, dynamic>? shard;
+    try {
+      final decoded = jsonDecode(utf8.decode(result.value!.bytes));
+      if (decoded is Map) shard = Map<String, dynamic>.from(decoded);
+    } on Object {
+      return;
+    }
+    if (shard == null) return;
+    final removed = <String, String>{};
+    for (final item in (shard['deleted'] as List?) ?? const <dynamic>[]) {
+      if (item is! Map) continue;
+      final id = item['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+      removed[id] = item['deletedAt']?.toString() ?? '';
+    }
+    for (final item in (shard['people'] as List?) ?? const <dynamic>[]) {
+      if (item is! Map || item['deleted'] != true) continue;
+      final id = item['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+      removed[id] = item['deletedAt']?.toString() ?? '';
+    }
+    if (removed.isEmpty) return;
+    var changed = false;
+    for (final person in store.people) {
+      if (person.deleted || !removed.containsKey(person.id)) continue;
+      person.deleted = true;
+      person.active = false;
+      person.deletedAt = removed[person.id]!.isEmpty
+          ? DateTime.now().toUtc().toIso8601String()
+          : removed[person.id]!;
+      changed = true;
+    }
+    if (!changed) return;
+    _muted = true;
+    try {
+      await store.persist();
+    } finally {
+      _muted = false;
+    }
+  }
+
   static Map<String, dynamic> _payloadFromShards(Map<String, List<int>> files) {
     final peopleJson = files[ObjectLayout.people];
-    final peoplePayload = peopleJson == null
-        ? const <dynamic>[]
-        : (jsonDecode(utf8.decode(peopleJson)) as Map)['people'] as List? ??
-              const <dynamic>[];
+    final peopleShard = peopleJson == null
+        ? const <String, dynamic>{}
+        : Map<String, dynamic>.from(jsonDecode(utf8.decode(peopleJson)) as Map);
+    final live = (peopleShard['people'] as List?) ?? const <dynamic>[];
+    // Tombstones come back as deleted people so old entries keep their names
+    // and the local list never silently re-adds the person.
+    final removed = (peopleShard['deleted'] as List?) ?? const <dynamic>[];
+    final people = <Map<String, dynamic>>[
+      for (final person in live)
+        if (person is Map) Map<String, dynamic>.from(person),
+      for (final tombstone in removed)
+        if (tombstone is Map)
+          {
+            'id': tombstone['id'],
+            'name': tombstone['name'] ?? '',
+            'gender': '',
+            'employeeId': '',
+            'active': false,
+            'deleted': true,
+            'deletedAt': tombstone['deletedAt'] ?? '',
+          },
+    ];
     final entries = <dynamic>[];
     final leavesById = <String, dynamic>{};
     for (final item in files.entries) {
@@ -358,7 +455,7 @@ class SyncService extends ChangeNotifier {
     }
     return {
       'schema': 1,
-      'people': peoplePayload,
+      'people': people,
       'entries': entries,
       'leaves': leavesById.values.toList(),
     };

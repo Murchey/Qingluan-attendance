@@ -26,6 +26,7 @@ class Person {
     this.employeeId = '',
     this.active = true,
     this.deleted = false,
+    this.deletedAt = '',
   });
   final String id;
   String name;
@@ -33,6 +34,9 @@ class Person {
   String employeeId;
   bool active;
   bool deleted;
+
+  /// UTC ISO stamp of the deletion; used to prune cloud tombstones.
+  String deletedAt;
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
@@ -40,6 +44,7 @@ class Person {
     'employeeId': employeeId,
     'active': active,
     'deleted': deleted,
+    if (deletedAt.isNotEmpty) 'deletedAt': deletedAt,
   };
   factory Person.fromJson(Map<String, dynamic> j) => Person(
     j['id'],
@@ -48,6 +53,7 @@ class Person {
     employeeId: j['employeeId'] ?? '',
     active: j['active'],
     deleted: j['deleted'] ?? false,
+    deletedAt: j['deletedAt']?.toString() ?? '',
   );
 }
 
@@ -757,10 +763,12 @@ class Workspace extends ChangeNotifier {
     await persist();
   }
 
-  /// Keep the person as a tombstone so historical attendance retains its name.
+  /// Keep the person as a tombstone so historical attendance retains its name;
+  /// the cloud shard drops the person record and keeps only a deletion marker.
   Future<void> deletePerson(Person person) async {
     person.deleted = true;
     person.active = false;
+    person.deletedAt = DateTime.now().toUtc().toIso8601String();
     pendingDays.add('人员名单');
     await persist();
   }

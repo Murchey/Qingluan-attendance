@@ -1,7 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../../core/data/workspace.dart';
-import '../../../core/sync/sync_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/design_tokens.dart';
 import '../../../core/widgets/app_widgets.dart';
@@ -14,6 +13,7 @@ import '../../leave/presentation/leave_page.dart';
 import '../../notice/presentation/notice_composer.dart';
 import '../../notice/presentation/notice_panel.dart';
 import '../../settings/presentation/cloud_qr_page.dart';
+import '../../settings/presentation/settings_page.dart';
 import '../../stats/presentation/stats_page.dart';
 import '../../sync/presentation/sync_page.dart';
 
@@ -27,9 +27,11 @@ class TodayPage extends StatefulWidget {
     required this.onSync,
     required this.onSettings,
     required this.onRecords,
+    this.onRefresh,
   });
   final Workspace store;
   final VoidCallback onSync, onSettings, onRecords;
+  final Future<void> Function()? onRefresh;
 
   @override
   State<TodayPage> createState() => _TodayPageState();
@@ -44,6 +46,20 @@ class _TodayPageState extends State<TodayPage> {
   bool busy = false;
 
   String get day => businessDay();
+
+  /// First-run helper: without a name every save would fail, so the roster
+  /// asks for it up front instead of after the first tap.
+  Future<void> _editIdentity() async {
+    final name = await input(
+      context,
+      '设置操作人姓名',
+      value: store.identity,
+      label: '姓名',
+      hint: '例如：王敏（教务）',
+    );
+    if (name == null || name.trim().isEmpty) return;
+    await store.setIdentity(name.trim());
+  }
 
   Future<void> backfill(BuildContext context) async {
     final today = DateTime.parse(day);
@@ -242,6 +258,7 @@ class _TodayPageState extends State<TodayPage> {
 
     return Screen(
       title: '今日名单',
+      onRefresh: widget.onRefresh,
       actions: [
         GlassIconButton(
           icon: CupertinoIcons.qrcode_viewfinder,
@@ -260,13 +277,21 @@ class _TodayPageState extends State<TodayPage> {
         ),
       ],
       children: [
-        CollaborationStatusBar(store: store, onTap: widget.onSync),
+        CollaborationStatusBar(
+          store: store,
+          onTap: widget.onSync,
+          onConfigure: () => Navigator.of(context).push(
+            CupertinoPageRoute<void>(
+              builder: (_) => SettingsPage(store: store, section: '对象存储'),
+            ),
+          ),
+        ),
         Padding(
           padding: const EdgeInsets.only(bottom: 10),
           child: Row(
             children: [
               Text(
-                '${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
+                '${date.year}年${date.month}月${date.day}日  ${weekdays[date.weekday - 1]}',
                 style: AppType.footnoteStyle.copyWith(color: secondary),
               ),
               const Spacer(),
@@ -277,14 +302,61 @@ class _TodayPageState extends State<TodayPage> {
             ],
           ),
         ),
-        if (store.identity.isNotEmpty)
+        if (store.identity.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: Gap.sm),
+            child: GlassCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      IconBadge(
+                        icon: CupertinoIcons.person_crop_circle_badge_plus,
+                        tint: CupertinoDynamicColor.resolve(
+                          AppColors.navy,
+                          context,
+                        ),
+                        size: 34,
+                      ),
+                      const SizedBox(width: Gap.xs),
+                      Expanded(
+                        child: Text(
+                          '先设置操作人姓名',
+                          style: AppType.rowTitle.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '之后每次登记都会记录是谁操作的，导出和同步也会带上这个名字。',
+                    style: AppType.caption.copyWith(color: secondary),
+                  ),
+                  const SizedBox(height: Gap.sm),
+                  PrimaryButton(
+                    onPressed: _editIdentity,
+                    child: const Text('设置操作人'),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
           Align(
             alignment: Alignment.centerLeft,
             child: Padding(
               padding: const EdgeInsets.only(bottom: Gap.sm),
-              child: Text(
-                '当前操作人：${store.identity}',
-                style: AppType.caption.copyWith(color: secondary),
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 28),
+                onPressed: _editIdentity,
+                child: Text(
+                  '操作人：${store.identity} · 修改',
+                  style: AppType.caption.copyWith(color: secondary),
+                ),
               ),
             ),
           ),
@@ -371,8 +443,6 @@ class _TodayPageState extends State<TodayPage> {
               _textAction(context, '管理员通知', () => publishNotice(context)),
             ],
           ),
-          const SizedBox(height: Gap.md),
-          _syncStrip(context),
         ],
       ],
     );
@@ -447,44 +517,6 @@ class _TodayPageState extends State<TodayPage> {
           ),
         ),
       );
-
-  Widget _syncStrip(BuildContext context) {
-    final secondary = CupertinoColors.secondaryLabel.resolveFrom(context);
-    final failed = store.sync?.phase == SyncPhase.failed;
-    return CupertinoButton(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      onPressed: widget.onSync,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            failed
-                ? CupertinoIcons.exclamationmark_circle
-                : CupertinoIcons.cloud,
-            size: 14,
-            color: failed ? AppColors.danger.resolveFrom(context) : secondary,
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              store.sync == null
-                  ? '数据保存在本机 · 查看同步状态'
-                  : '${store.sync!.label}'
-                        '${store.pendingDays.isEmpty ? '' : '（${store.pendingDays.length} 项）'}'
-                        ' · 查看同步状态',
-              style: AppType.caption.copyWith(
-                color: failed
-                    ? AppColors.danger.resolveFrom(context)
-                    : secondary,
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Icon(CupertinoIcons.chevron_right, size: 10, color: secondary),
-        ],
-      ),
-    );
-  }
 }
 
 class _UndoBar extends StatelessWidget {
@@ -626,10 +658,10 @@ class _RosterRow extends StatelessWidget {
     final id = person.employeeId;
     final out = entry?.fields['out'] ?? '';
     final hint = entry == null
-        ? '点一下记签到'
+        ? '点击签到'
         : out.isEmpty
-        ? '再点一下记签退'
-        : '点一下可修改';
+        ? '点击签退'
+        : '点击修改记录';
     return id.isEmpty ? hint : '$id · $hint';
   }
 

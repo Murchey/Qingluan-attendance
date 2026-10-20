@@ -20,7 +20,7 @@ if errorlevel 1 (
   goto :fail
 )
 
-rem 从 pubspec.yaml 读取版本号，例如 1.0.0+1 提取为 1.0.0
+rem 从 pubspec.yaml 读取版本号，例如 1.0.3+4；文件名使用 1.0.3，Android versionCode 使用 +4
 set "APP_VERSION="
 for /f "tokens=2 delims=:+" %%V in ('findstr /b /c:"version:" pubspec.yaml') do (
   if not defined APP_VERSION set "APP_VERSION=%%V"

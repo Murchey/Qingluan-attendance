@@ -5,13 +5,14 @@ library;
 /// Bump when the privacy policy changes materially: the onboarding gate asks
 /// again when the accepted version is older than this one.
 const String kPolicyVersion = '2026-10-18';
-const String kAppVersion = '1.0.2';
+const String kAppVersion = '1.0.3';
 const String kContactEmail = 'murchey@126.com';
 
 const String kPrivacySummary =
     '数据默认只存在本机。只有你自己填写的对象存储会收到业务数据，青鸾没有服务器，也看不到你的名单和考勤。';
 
-const String kPrivacyPolicy = '''
+const String kPrivacyPolicy =
+    '''
 # 青鸾考勤 隐私政策
 
 版本 $kPolicyVersion · 适用于 Android 版青鸾考勤 $kAppVersion

@@ -266,10 +266,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         onSettings: () => Navigator.of(context).pop(),
                         onStorageSettings: () => Navigator.of(context).push(
                           CupertinoPageRoute<void>(
-                            builder: (_) => SettingsPage(
-                              store: store,
-                              section: '对象存储',
-                            ),
+                            builder: (_) =>
+                                SettingsPage(store: store, section: '对象存储'),
                           ),
                         ),
                       ),
@@ -339,7 +337,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _row(
               context,
               '关于',
-              detail: '青鸾考勤 1.0.2',
+              detail: '青鸾考勤 1.0.3',
               icon: CupertinoIcons.info_circle,
               onTap: () => openSection('关于'),
             ),
@@ -636,7 +634,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ]),
         if (widget.section == '关于')
           _group('关于', [
-            const SettingRow('青鸾考勤', detail: '1.0.2 · 本地优先'),
+            const SettingRow('青鸾考勤', detail: '1.0.3 · 本地优先'),
             SettingRow(
               'GitHub 仓库',
               detail: 'Murchey/Qingluan-attendance · 源码与 Release',

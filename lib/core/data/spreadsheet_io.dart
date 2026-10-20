@@ -49,7 +49,11 @@ const _idHeaders = {
 };
 
 String _normalizeHeader(Object? raw) {
-  var text = (raw ?? '').toString().replaceAll('\uFEFF', '').trim().toLowerCase();
+  var text = (raw ?? '')
+      .toString()
+      .replaceAll('\uFEFF', '')
+      .trim()
+      .toLowerCase();
   text = text.replaceAll(RegExp(r'[\s*＊:：]'), '');
   text = text.replaceAll(RegExp(r'[（(].*?[）)]'), '');
   return text;
@@ -94,7 +98,8 @@ ImportPreview parsePeople(
   final employeeIds = <String, String>{};
   for (var i = headerRow + 1; i < rows.length; i++) {
     final row = rows[i];
-    final name = (nameColumn < row.length ? row[nameColumn] : null)
+    final name =
+        (nameColumn < row.length ? row[nameColumn] : null)
             ?.toString()
             .replaceAll('\uFEFF', '')
             .trim() ??
@@ -141,10 +146,7 @@ ImportPreview parsePeople(
 /// Tries every worksheet and returns the first one that contains a roster.
 /// Bill records, attendance logs and other unrelated workbooks are rejected
 /// with a message instead of being imported by column position.
-ImportPreview parsePeopleWorkbook(
-  Uint8List bytes,
-  Iterable<String> existing,
-) {
+ImportPreview parsePeopleWorkbook(Uint8List bytes, Iterable<String> existing) {
   final book = Excel.decodeBytes(bytes);
   if (book.tables.isEmpty) throw const FormatException('工作簿没有表格');
   final errors = <String>[];
@@ -159,9 +161,7 @@ ImportPreview parsePeopleWorkbook(
     }
   }
   throw FormatException(
-    errors.isEmpty
-        ? '工作簿没有可导入的人员'
-        : '未找到可导入的人员名单。${errors.first}',
+    errors.isEmpty ? '工作簿没有可导入的人员' : '未找到可导入的人员名单。${errors.first}',
   );
 }
 
@@ -233,7 +233,8 @@ Future<String?> savePeopleTemplate(Rect origin) async {
     fileName: name,
     type: FileType.custom,
     allowedExtensions: ['xlsx'],
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    mimeType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     bytes: Uint8List.fromList(bytes),
   );
   return target?.toString();
@@ -276,7 +277,7 @@ List<int> workbookBytes(
   }
   final metadata = book['导出信息'];
   for (final row in [
-    ['应用', '青鸾考勤 1.0.2'],
+    ['应用', '青鸾考勤 1.0.3'],
     [
       '生成时间（东八区）',
       DateTime.now()
